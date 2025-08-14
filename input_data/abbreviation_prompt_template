@@ -1,0 +1,10 @@
+We are working on biomedical abstracts. Within these abstracts, authors will often define an abbreviation that they
+are going to use throughout the text. For instance one abstract may state “Patients with cystic fibrosis (CF) are
+frequently misdiagnosed due to the …”. In this case CF is being defined as an abbreviation of cystic fibrosis. I will
+give you an abstract, and you will tell me all of the abbreviations being defined and the exact string from the
+abstract that is being abbreviated. In the case that an abbreviation occurs in the definition of another abbreviation,
+fully expand all of the definitions.  Return your results as a JSON array of objects with two keys:
+- "abbreviation": the abbreviation being defined
+- "definition": the exact string from the abstract that is being abbreviated
+
+Begin abstract:

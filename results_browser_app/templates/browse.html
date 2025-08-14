@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Results Browser</title>
+    <style>
+        .dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .legend {
+            margin-top: 20px;
+        }
+        .legend-item {
+            display: list-item;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+        .legend-item:hover {
+            background: #e0e7ff;
+            color: #1e40af;
+        }
+        .legend-item:hover .dot {
+            box-shadow: 0 0 0 3px #a5b4fc;
+            border: 1.5px solid #6366f1;
+        }
+        .threshold-list {
+            margin-bottom: 20px;
+        }
+        .highlight-candidate {
+            background: #fef08a !important;
+            transition: background 0.2s;
+        }
+    </style>
+</head>
+<body>
+    <div style="margin-bottom: 16px;">
+        {% if prev_idx is not none %}
+            <a href="/{{ prev_idx }}">Previous</a>
+        {% else %}
+            Previous
+        {% endif %}
+        |
+        {% if next_idx is not none %}
+            <a href="/{{ next_idx }}">Next</a>
+        {% else %}
+            Next
+        {% endif %}
+    </div>
+    {% if abstract %}
+        <div style="display: flex; align-items: flex-start; margin-bottom: 20px; gap: 32px;">
+            <div style="flex: 2; min-width: 400px; max-width: 900px;">
+                <strong>Abstract:</strong>
+                <div style="background: #f7f7f7; border-radius: 6px; padding: 12px; margin-top: 4px;">{{ abstract }}</div>
+            </div>
+            {% if model_colors %}
+            <div class="legend" style="min-width: 120px;">
+                <strong>Legend:</strong>
+                <ul style="list-style: none; padding-left: 0; margin-top: 8px;">
+                {% for model, color in model_colors.items() %}
+                    {% set model_class = model|replace(' ', '_')|replace('.', '_')|replace('-', '_') %}
+                    <li class="legend-item model-legend-{{ model_class }}" data-model="{{ model_class }}" style="margin-bottom: 8px;">
+                        <span class="dot" style="background: {{ color }};"></span> {{ model }}
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    {% endif %}
+    <h2>Query: {{ query }}</h2>
+    <div style="display: flex; gap: 40px;">
+        {% for threshold in thresholds %}
+            <div class="threshold-list">
+                <h4>Threshold {{ threshold }}</h4>
+                <ul>
+                    {% set candidates = candidates_by_threshold.get(threshold|string) %}
+                    {% set model_map = exact_model_maps.get(threshold|string, {}) %}
+                    {% if candidates %}
+                        {% for candidate in candidates %}
+                            <li class="candidate-row {% for model in model_map.get(candidate.color, []) %}{% set model_class = model|replace(' ', '_')|replace('.', '_')|replace('-', '_') %}model-candidate-{{ model_class }} {% endfor %}">
+                                {% for model in model_map.get(candidate.color, []) %}
+                                    <span class="dot" style="background: {{ model_colors.get(model, '#3cb44b') }};"></span>
+                                {% endfor %}
+                                {{ candidate.display }}
+                            </li>
+                        {% endfor %}
+                    {% endif %}
+                </ul>
+            </div>
+        {% endfor %}
+    </div>
+    <script>
+    document.querySelectorAll('.legend-item').forEach(function(item) {
+        item.addEventListener('mouseenter', function() {
+            var model = this.getAttribute('data-model');
+            document.querySelectorAll('.model-candidate-' + model).forEach(function(row) {
+                row.classList.add('highlight-candidate');
+            });
+        });
+        item.addEventListener('mouseleave', function() {
+            var model = this.getAttribute('data-model');
+            document.querySelectorAll('.model-candidate-' + model).forEach(function(row) {
+                row.classList.remove('highlight-candidate');
+            });
+        });
+    });
+    </script>
+</body>
+</html>
