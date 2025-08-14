@@ -163,7 +163,7 @@ def test_llm_connection(model: str, url: str = "local", format: bool = True) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--run', default='run_1', help='Run directory name (default: run_1)')
+    parser.add_argument('--run', help='Run directory name (required)')
     parser.add_argument('--models', nargs='+', default=None, help='List of model names to run (default: all)')
     parser.add_argument('--thresholds', nargs='+', type=int, default=None, help='List of thresholds to use (default: all)')
     parser.add_argument('--walltime', type=int, default=None, help='Walltime in seconds per model (default: run to completion)')

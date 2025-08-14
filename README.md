@@ -70,65 +70,92 @@ python scripts/make_prompts.py --run RUN_NAME --threshold THRESHOLD
 
 This will generate files like `data/RUN_NAME/bodies_THRESHOLD.jsonl` in the appropriate run directory.
 
-### 3. Run Local Model (Ollama)
+### 3. Run Local Models with Ollama
 
-Use `run_ollama.py` to process prompts with a local model (e.g., via Ollama). You can specify which models and thresholds to use with command-line arguments.
+The `run_ollama.py` script runs prompts through local (Ollama) models and saves the results. You must specify which run directory to use (created by `make_prompts.py`).
 
-Example usage:
+**Arguments:**
 
-```
-python scripts/run_ollama.py --run run_1 --models "alibayram/medgemma:27B" "gemma3:12B" --thresholds 10 20
-```
+- `--run RUN_NAME` (required): Name of the run directory under `data/` (e.g., `run_1`).
+- `--models MODEL [MODEL ...]` (optional): List of model names to run (default: all models in the script). Example: `--models "alibayram/medgemma:27B" "gemma3:12B"`
+- `--thresholds N [N ...]` (optional): List of thresholds to use (default: all thresholds in the script). Example: `--thresholds 5 10`
+- `--walltime SECONDS` (optional): Walltime in seconds per model (default: run to completion).
+- `--test-llm` (optional): Test LLM connection for selected models and exit (does not run prompts).
 
-- `--run` specifies the run directory name (default: `run_1`).
-- `--models` specifies one or more model names to run (default: all models).
-- `--thresholds` specifies one or more thresholds to use (default: all thresholds).
+**Example usage:**
 
-If you omit `--models` or `--thresholds`, the script will use all available models and thresholds by default.
-
-**Input prompt files should be in the `data/RUN_NAME/parsed_inputs/` directory, and output files will be written to `data/RUN_NAME/ollama_results/`.**
-
-Results are saved as files named like `MODELNAME__bodies_THRESHOLD_message_output.jsonl` and `MODELNAME__bodies_THRESHOLD_response_output.jsonl`.
-
-To run the script, simply execute:
-
-```
-python scripts/run_ollama.py
+```bash
+python scripts/run_ollama.py --run run_1 --models "alibayram/medgemma:27B" "gemma3:12B" --thresholds 5 10
 ```
 
-This will process all configured models and prompt files as specified in the script, reading from and writing to the `data/` directory.
+This will run the specified models on the prompts for thresholds 5 and 10 in the `data/run_1/` directory. Results will be saved in `data/run_1/ollama_results/`.
 
-### 4. Prepare OpenAI Batch Files
+**Outputs:**
+- Model responses are saved as JSONL files in the corresponding `ollama_results/` directory for the run.
+- Filenames encode the model and threshold used.
 
-Use `convert_to_openai_batch.py` to convert prompts into OpenAI batch format. This script takes a threshold (e.g., 10 or 20), infers the bodies and color file locations, and writes batch files to `data/run_*/open_ai_batches_{threshold}/`. You can also use the `--limit` option to control how many prompts are included in each batch file.
+### 4. Convert Prompts to OpenAI Batch Format
 
+The `convert_to_openai_batch.py` script converts generated prompts into OpenAI batch format for one or more models. It reads prompt files from a run directory and writes batch files for each model to a dedicated output directory.
+
+**Arguments:**
+
+- `--threshold N` (required): The threshold for the prompt files (e.g., 10, 20, etc.).
+- `--run RUN_NAME` (optional): Name of the run directory under `data/` (default: `run_1`).
+- `--limit N` (optional): Maximum number of prompts to include in each batch file (default: all prompts).
+- `--models MODEL1,MODEL2,...` (optional): Comma-separated list of model names to use (default: all supported models).
+
+**Example usage:**
+
+```bash
+python scripts/convert_to_openai_batch.py --threshold 10 --run run_1 --models "gpt-4o,gpt-4.1" --limit 50
 ```
-python scripts/convert_to_openai_batch.py 10 --limit 50
-```
 
-This will create files like `data/run_*/open_ai_batches_10/openai_batch_gpt-4o_bodies_10.jsonl` for each model, each containing up to 50 prompts.
+This will convert up to 50 prompts from `data/run_1/parsed_inputs/bodies_10.jsonl` into OpenAI batch format for the `gpt-4o` and `gpt-4.1` models, writing output files to `data/run_1/open_ai_batches_10/`.
+
+**Outputs:**
+- Batch files are saved as `openai_batch_MODELNAME_bodies_THRESHOLD.jsonl` in the appropriate `open_ai_batches_{threshold}` directory for the run.
+- Each file contains prompts formatted for OpenAI batch processing.
 
 ### 5. Run OpenAI Batch
 
-Use `run_openai.py` to submit and monitor all batch files in a directory (e.g., `data/run_*/open_ai_batches_10`). All batches will be submitted and monitored concurrently (one thread per batch file). Results for each batch will be downloaded into a new directory (e.g., `data/run_*/open_ai_results_10`).
+The `run_openai.py` script submits and monitors all OpenAI batch files for a given run. It automatically finds all `open_ai_batches_*` directories in the specified run directory, submits each batch file, monitors job status, and downloads results when complete.
 
+**Arguments:**
+
+- `--run RUN_NAME` (optional): Name of the run directory under `data/` (default: `run_1`).
+
+**Example usage:**
+
+```bash
+python scripts/run_openai.py --run run_1
 ```
-python scripts/run_openai.py data/run_*/open_ai_batches_10
-```
 
-Each result will be saved as `data/run_*/open_ai_results_10/openai_results_MODELNAME_bodies_10.jsonl`.
+This will process all batch files in all `open_ai_batches_*` directories under `data/run_1/`, submitting them to OpenAI and saving results in the corresponding `open_ai_results_*` directories.
 
-You can also specify a custom output directory with `--output_dir`.
+**Outputs:**
+- Results are saved as `openai_results_MODELNAME_bodies_THRESHOLD.jsonl` in the appropriate `open_ai_results_{threshold}` directory for the run.
+- Each file contains the OpenAI model responses for the submitted batch.
 
 ### 6. Evaluate Outputs
 
-Use `evaluate_outputs.py` to aggregate and evaluate all results from Ollama and OpenAI. The script will automatically find all relevant result files in the `data/` directory and its subdirectories, and produce a combined summary.
+The `evaluate_outputs.py` script aggregates and evaluates all results from Ollama and OpenAI for a given run. It automatically finds all thresholds and processes both Ollama and OpenAI outputs, producing combined summary files for downstream analysis and database building.
 
-```
-python scripts/evaluate_outputs.py
+**Arguments:**
+
+- `--run RUN_NAME` (required): Name of the run directory under `data/` (e.g., `run_1`).
+
+**Example usage:**
+
+```bash
+python scripts/evaluate_outputs.py --run run_1
 ```
 
-The combined evaluation summary will be written to `data/run_*/evaluation_summary_all.jsonl`.
+This will process all results for all thresholds in `data/run_1/`, aggregating and evaluating both Ollama and OpenAI outputs.
+
+**Outputs:**
+- Combined evaluation summary as `evaluation_summary_all.jsonl` in the run directory (e.g., `data/run_1/evaluation_summary_all.jsonl`).
+- TSV file for database building as `results_all.tsv` in the run directory (e.g., `data/run_1/results_all.tsv`).
 
 ### 7. Build Database for Browser App
 
@@ -142,19 +169,44 @@ This will create `data/run_1/results.db`.
 
 ### 8. Analyze and Visualize Evaluation Results
 
-After running evaluations, use `analyze.py` to aggregate and summarize the results by model and threshold. This script reads the evaluation summary JSONL file and outputs a TSV file with aggregated statistics.
+The `analyze.py` script aggregates and summarizes the evaluation results by model and threshold. It reads the evaluation summary JSONL file and outputs a TSV file with aggregated statistics for further analysis and visualization.
 
-```
-python scripts/analyze.py --input data/run_1/evaluation_summary_all.jsonl
+**Arguments:**
+
+- `--run RUN_NAME` (optional): Name of the run directory under `data/` (default: `run_1`).
+- `--input FILE` (optional): Path to the evaluation summary JSONL file (default: `data/RUN_NAME/evaluation_summary_all.jsonl`).
+
+**Example usage:**
+
+```bash
+python scripts/analyze.py --run run_1
 ```
 
-This will create a file like `data/run_1/evaluation_summary_all_aggregated.tsv` containing the summary statistics.
+This will read `data/run_1/evaluation_summary_all.jsonl` and write the aggregated results to `data/run_1/evaluation_summary_all_aggregated.tsv`.
 
-You can also use `visualize_analysis.py` to generate plots and visualizations from the aggregated TSV file:
+**Outputs:**
+- Aggregated statistics as `evaluation_summary_all_aggregated.tsv` in the run directory (e.g., `data/run_1/evaluation_summary_all_aggregated.tsv`).
 
+---
+
+The `visualize_analysis.py` script generates plots and visualizations from the aggregated TSV file. It produces a series of plots (e.g., accuracy, cost, duration) for each model and threshold, saving them in the run's `visualizations/` directory.
+
+**Arguments:**
+
+- `--run RUN_NAME` (optional): Name of the run directory under `data/` (default: `run_1`).
+- `--input FILE` (optional): Path to the aggregated TSV file (default: `data/RUN_NAME/evaluation_summary_all_aggregated.tsv`).
+- `--out FILE` (optional): Output plot file for duration plot (default: `data/RUN_NAME/visualizations/avg_duration_vs_threshold.png`).
+
+**Example usage:**
+
+```bash
+python scripts/visualize_analysis.py --run run_1
 ```
-python scripts/visualize_analysis.py --input data/run_1/evaluation_summary_all_aggregated.tsv
-```
+
+This will generate plots for all relevant metrics and save them in `data/run_1/visualizations/`.
+
+**Outputs:**
+- Plots for each metric (e.g., `avg_duration_vs_threshold.png`, `avgcost_vs_threshold.png`, etc.) saved in the `visualizations/` directory for the run.
 
 ## Browse Results with the Web App
 
