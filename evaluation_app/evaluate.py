@@ -66,6 +66,9 @@ def show_abstract(index):
     navigation = get_navigation(index, model, user, skip_mode, conn, pmid)
     identifier_infos = get_identifier_infos(identifiers, conn) if index in valid_indices and identifiers else []
     user_assessments = get_user_assessments(index, user, conn) if index in valid_indices and identifiers else {}
+    # Build abstract navigation URLs from indices
+    prev_abstract_url = url_for('show_abstract', index=navigation['prev_abstract_index']) if navigation.get('prev_abstract_index') is not None else None
+    next_abstract_url = url_for('show_abstract', index=navigation['next_abstract_index']) if navigation.get('next_abstract_index') is not None else None
     conn.close()
     return render_template(
         'abstract.html',
@@ -77,8 +80,8 @@ def show_abstract(index):
         current_index=index,
         original_text=original_text,
         user_assessments=user_assessments,
-        prev_abstract_url=navigation['prev_abstract_url'],
-        next_abstract_url=navigation['next_abstract_url'],
+        prev_abstract_url=prev_abstract_url,
+        next_abstract_url=next_abstract_url,
         random_annotation_url=navigation['random_annotation_url'],
         random_abstract_url=navigation['random_abstract_url']
     )

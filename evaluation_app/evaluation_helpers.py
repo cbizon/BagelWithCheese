@@ -117,33 +117,83 @@ def get_prev_skip_index(index, model, user, conn):
 def get_navigation(index, model, user, skip_mode, conn, pmid=None):
     c = conn.cursor()
     prev_index = next_index = None
+    prev_abstract_index = next_abstract_index = None
     prev_abstract_url = next_abstract_url = None
     random_annotation_url = random_abstract_url = None
     models = (model, 'medmentions')
     if skip_mode and user:
         next_index = get_next_skip_index(index, model, user, conn)
         prev_index = get_prev_skip_index(index, model, user, conn)
-        # The following URLs are not implemented in helpers, so set to None
-        prev_abstract_url = None
-        next_abstract_url = None
-        random_annotation_url = None
-        random_abstract_url = None
+        # Abstract navigation (prev/next) in skip mode
+        # Get all eligible pmids in order
+        c.execute('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE r.model = ? OR r.model = 'medmentions' ORDER BY re.pmid''', (model,))
+        pmid_rows = c.fetchall()
+        pmid_list = [row[0] for row in pmid_rows]
+        pmid_pos = pmid_list.index(pmid) if pmid and pmid in pmid_list else None
+        # Previous abstract
+        prev_abstract_index = None
+        if pmid_pos is not None and pmid_pos > 0:
+            for p in range(pmid_pos - 1, -1, -1):
+                prev_pmid = pmid_list[p]
+                # Find eligible recognized_entity for this pmid
+                c.execute('''SELECT re.id FROM recognized_entities re LEFT JOIN results r ON re.id = r.idx AND (r.model = ? OR r.model = 'medmentions') WHERE re.pmid = ? AND (
+                    SELECT COUNT(DISTINCT CASE WHEN r2.model = ? OR r2.model = 'medmentions' THEN r2.identifier END) FROM results r2 WHERE r2.idx = re.id AND r2.identifier IS NOT NULL
+                ) > (
+                    SELECT COUNT(DISTINCT a.identifier) FROM assessment a WHERE a.idx = re.id AND a.user = ? AND a.identifier IN (
+                        SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions') AND r2.identifier IS NOT NULL
+                    )
+                ) ORDER BY re.id ASC''', (model, prev_pmid, model, user, model))
+                rows = c.fetchall()
+                if rows:
+                    prev_abstract_index = rows[0][0]
+                    break
+        # Next abstract
+        next_abstract_index = None
+        if pmid_pos is not None and pmid_pos < len(pmid_list) - 1:
+            for p in range(pmid_pos + 1, len(pmid_list)):
+                next_pmid = pmid_list[p]
+                c.execute('''SELECT re.id FROM recognized_entities re LEFT JOIN results r ON re.id = r.idx AND (r.model = ? OR r.model = 'medmentions') WHERE re.pmid = ? AND (
+                    SELECT COUNT(DISTINCT CASE WHEN r2.model = ? OR r2.model = 'medmentions' THEN r2.identifier END) FROM results r2 WHERE r2.idx = re.id AND r2.identifier IS NOT NULL
+                ) > (
+                    SELECT COUNT(DISTINCT a.identifier) FROM assessment a WHERE a.idx = re.id AND a.user = ? AND a.identifier IN (
+                        SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions') AND r2.identifier IS NOT NULL
+                    )
+                ) ORDER BY re.id ASC''', (model, next_pmid, model, user, model))
+                rows = c.fetchall()
+                if rows:
+                    next_abstract_index = rows[0][0]
+                    break
     else:
         valid_indices = get_valid_indices(model, conn)
         if index in valid_indices:
             idx_pos = valid_indices.index(index)
             prev_index = valid_indices[idx_pos - 1] if idx_pos > 0 else None
             next_index = valid_indices[idx_pos + 1] if idx_pos < len(valid_indices) - 1 else None
-        # The following URLs are not implemented in helpers, so set to None
-        prev_abstract_url = None
-        next_abstract_url = None
-        random_annotation_url = None
-        random_abstract_url = None
+        # Abstract navigation (prev/next) in non-skip mode
+        c.execute('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE r.model = ? ORDER BY re.pmid''', (model,))
+        valid_pmids = [row[0] for row in c.fetchall()]
+        pmid_pos = valid_pmids.index(pmid) if pmid and pmid in valid_pmids else None
+        prev_abstract_index = next_abstract_index = None
+        if pmid_pos is not None:
+            if pmid_pos > 0:
+                prev_pmid = valid_pmids[pmid_pos - 1]
+                c.execute('''SELECT re.id FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE re.pmid = ? AND r.model = ? ORDER BY re.id ASC LIMIT 1''', (prev_pmid, model))
+                prev_row = c.fetchone()
+                if prev_row:
+                    prev_abstract_index = prev_row[0]
+            if pmid_pos < len(valid_pmids) - 1:
+                next_pmid = valid_pmids[pmid_pos + 1]
+                c.execute('''SELECT re.id FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE re.pmid = ? AND r.model = ? ORDER BY re.id ASC LIMIT 1''', (next_pmid, model))
+                next_row = c.fetchone()
+                if next_row:
+                    next_abstract_index = next_row[0]
     return {
         'prev_index': prev_index,
         'next_index': next_index,
-        'prev_abstract_url': prev_abstract_url,
-        'next_abstract_url': next_abstract_url,
-        'random_annotation_url': random_annotation_url,
-        'random_abstract_url': random_abstract_url
+        'prev_abstract_index': prev_abstract_index,
+        'next_abstract_index': next_abstract_index,
+        'prev_abstract_url': None,
+        'next_abstract_url': None,
+        'random_annotation_url': None,
+        'random_abstract_url': None
     }
