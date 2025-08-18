@@ -32,6 +32,8 @@ def test_get_next_skip_index_eligible_exists():
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'testmodel', 'E1')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'testmodel', 'E2')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'medmentions', 'E1')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'E2')")
     conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (1, 'E1', 'user1', 'yes')")
     conn.commit()
     # Should return 2, since E2 is not assessed for user1
@@ -43,7 +45,7 @@ def test_get_next_skip_index_partial_assessed():
     # Entity 2 has two identifiers, only one is assessed
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
-    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'testmodel', 'E2a')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'E2a')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'testmodel', 'E2b')")
     conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E2a', 'user1', 'yes')")
     conn.commit()
@@ -70,7 +72,9 @@ def test_get_next_skip_index_multiple_users():
     # Entity 2 has one identifier, assessed by user2 but not user1
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'E1')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'testmodel', 'E2')")
+    conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E1', 'user2', 'yes')")
     conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E2', 'user2', 'yes')")
     conn.commit()
     # Should return 2 for user1, since user1 has not assessed E2
@@ -82,10 +86,12 @@ def test_get_next_skip_index_multiple_models():
     # Entity 2 has identifiers for two models, only testmodel is relevant
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
     conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'E2c')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'testmodel', 'E2a')")
     conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'othermodel', 'E2b')")
     conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E2a', 'user1', 'yes')")
     conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E2b', 'user1', 'yes')")
+    conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (2, 'E2c', 'user1', 'yes')")
     conn.commit()
     # Should return None, since all identifiers for testmodel are assessed
     assert get_next_skip_index(1, 'testmodel', 'user1', conn) is None
@@ -245,4 +251,74 @@ def test_get_prev_skip_index_complex_skip():
     result = get_prev_skip_index(50, 'gpt-oss', 'cb', conn)
     print('get_prev_skip_index(50, gpt-oss, cb) =', result)
     assert result == 48
+    conn.close()
+
+def test_get_next_skip_index_skips_missing_model_result():
+    conn = setup_in_memory_db()
+    # Three recognized entities: 1, 2, 3
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (3, 'PMID3', 'text', 'orig')")
+    # Results for model only at 1 and 3, not 2
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'medmentions', 'A')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'B')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (3, 'medmentions', 'C')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'testmodel', 'E1')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (3, 'testmodel', 'E3')")
+    # Assess 1 so it is not eligible
+    conn.execute("INSERT INTO assessment (idx, identifier, user, assessment) VALUES (1, 'E1', 'user1', 'yes')")
+    conn.commit()
+    # Should skip 2 (no result for model) and return 3
+    assert get_next_skip_index(1, 'testmodel', 'user1', conn) == 3
+    conn.close()
+
+def test_navigation_skips_missing_model_result():
+    from evaluation_helpers import get_navigation
+    conn = setup_in_memory_db()
+    # Three recognized entities: 1, 2, 3
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (3, 'PMID3', 'text', 'orig')")
+    # Results for model only at 1 and 3, not 2
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'testmodel', 'E1')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (3, 'testmodel', 'E3')")
+    conn.commit()
+    # At index 1, next_index should be 3 (skipping 2)
+    nav = get_navigation(1, 'testmodel', 'user1', False, conn)
+    assert nav['next_index'] == 3
+    # At index 3, next_index should be None
+    nav = get_navigation(3, 'testmodel', 'user1', False, conn)
+    assert nav['next_index'] is None
+    conn.close()
+
+def test_get_next_skip_index_last_index_missing_model_result():
+    conn = setup_in_memory_db()
+    # Only two recognized entities: 1, 2
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    # Result for model only at 1, not 2
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'testmodel', 'E1')")
+    # Add medmentions results for both indices
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'medmentions', 'M1')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'M2')")
+    conn.commit()
+    # At index 1, should return None (since 2 has no result for model)
+    assert get_next_skip_index(1, 'testmodel', 'user1', conn) is None
+    conn.close()
+
+def test_navigation_last_index_missing_model_result():
+    from evaluation_helpers import get_navigation
+    conn = setup_in_memory_db()
+    # Only two recognized entities: 1, 2
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (1, 'PMID1', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (2, 'PMID2', 'text', 'orig')")
+    # Result for model only at 1, not 2
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'testmodel', 'E1')")
+    # Add medmentions results for both indices
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (1, 'medmentions', 'M1')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (2, 'medmentions', 'M2')")
+    conn.commit()
+    # At index 1, next_index should be None (since 2 has no result for model)
+    nav = get_navigation(1, 'testmodel', 'user1', True, conn)
+    assert nav['next_index'] is None
     conn.close()

@@ -82,15 +82,18 @@ def get_next_skip_index(index, model, user, conn):
         JOIN results r ON re.id = r.idx
         WHERE re.id > ?
         GROUP BY re.id
-        HAVING COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
-            SELECT COUNT(DISTINCT a.identifier)
-            FROM assessment a
-            WHERE a.idx = re.id AND a.user = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions')
-              )
-        )
-    ''', (index, model, user, model))
+        HAVING SUM(CASE WHEN r.model = ? THEN 1 ELSE 0 END) > 0
+           AND SUM(CASE WHEN r.model = 'medmentions' THEN 1 ELSE 0 END) > 0
+           AND COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
+                SELECT COUNT(DISTINCT a.identifier)
+                FROM assessment a
+                WHERE a.idx = re.id AND a.user = ?
+                  AND a.identifier IN (
+                    SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions')
+                  )
+            )
+        ORDER BY re.id ASC LIMIT 1
+    ''', (index, model, model, user, model))
     row = c.fetchone()
     return row[0] if row else None
 
@@ -122,6 +125,7 @@ def get_navigation(index, model, user, skip_mode, conn, pmid=None):
     random_annotation_index = random_abstract_index = None
     if skip_mode and user:
         next_index = get_next_skip_index(index, model, user, conn)
+        print(f"Next index in skip mode: {next_index}")
         prev_index = get_prev_skip_index(index, model, user, conn)
         # Abstract navigation (prev/next) in skip mode
         # Get all eligible pmids in order
