@@ -28,6 +28,8 @@ The `color_code` in the JSON object **MUST** be the same one you identified in y
 
 **CRITICAL RULES:**
 
+  * Exact matches do not require grammatical correctness, matching singular/plural forms, or other linguistic considerations.
+  * Exact matches do require matching type (e.g. genes vs gene families) with the exception of genes vs proteins, which are considered exact matches.
   * Your output must be only the JSON output and nothing else.
   * Within the JSON, the `reasoning` key must come first, followed by the `candidates` array.
   * The `color_code` in the output must be an **exact copy** from the input. **DO NOT** invent, alter, or guess colors.
