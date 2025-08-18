@@ -44,12 +44,17 @@ def preprocess_annotation_map(annotation_map):
         for entry in entries:
             pmid = entry["pmid"]
             original_entity = entry["original_entity"]
+            try:
+                medmentions_type = entry["medmentions"]["biolink_types"][0]
+            except Exception:
+                medmentions_type = "biolink:NamedThing"
             key = (str(pmid), original_entity)
             if key not in unique:
                 unique[key] = {
                     "pmid": pmid,
                     "expanded_text": expanded_text,
-                    "original_text": original_entity
+                    "original_text": original_entity,
+                    "medmentions_type": medmentions_type
                 }
     # Order by pmid (as int if possible)
     def pmid_sort_key(x):
@@ -78,6 +83,7 @@ def create_body(
         pmid = row["pmid"]
         entity = row["original_text"]
         expanded_text = row["expanded_text"]
+        medmentions_type = row["medmentions_type"]
         key_entity = (pmid, entity)
         if expanded_text not in expanded_annotations_dict:
             continue
@@ -117,10 +123,17 @@ def create_body(
         color_maps.append({
             "index": idx,
             "entity": entity,
+            "putative_type": medmentions_type,
             "labels": labels,
             "taxons": taxons,
             "identifiers": identifiers
         })
+    # Reorder outbodies so that those with putative_type == "biolink:InformationContentEntity" are at the end
+    index_to_type = {cm["index"]: cm["putative_type"] for cm in color_maps}
+    non_info = [b for b in outbodies if index_to_type.get(b["index"]) != "biolink:InformationContentEntity"]
+    info = [b for b in outbodies if index_to_type.get(b["index"]) == "biolink:InformationContentEntity"]
+    print(len(non_info), len(info))
+    outbodies = non_info + info
     # Write output files
     with open(bodies_outfile, "w") as outf:
         for body in outbodies:
