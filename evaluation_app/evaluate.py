@@ -69,6 +69,8 @@ def show_abstract(index):
     # Build abstract navigation URLs from indices
     prev_abstract_url = url_for('show_abstract', index=navigation['prev_abstract_index']) if navigation.get('prev_abstract_index') is not None else None
     next_abstract_url = url_for('show_abstract', index=navigation['next_abstract_index']) if navigation.get('next_abstract_index') is not None else None
+    random_annotation_url = url_for('show_abstract', index=navigation['random_annotation_index']) if navigation.get('random_annotation_index') is not None else None
+    random_abstract_url = url_for('show_abstract', index=navigation['random_abstract_index']) if navigation.get('random_abstract_index') is not None else None
     conn.close()
     return render_template(
         'abstract.html',
@@ -82,8 +84,8 @@ def show_abstract(index):
         user_assessments=user_assessments,
         prev_abstract_url=prev_abstract_url,
         next_abstract_url=next_abstract_url,
-        random_annotation_url=navigation['random_annotation_url'],
-        random_abstract_url=navigation['random_abstract_url']
+        random_annotation_url=random_annotation_url,
+        random_abstract_url=random_abstract_url
     )
 
 @app.route('/')

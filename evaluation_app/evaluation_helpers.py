@@ -119,8 +119,7 @@ def get_navigation(index, model, user, skip_mode, conn, pmid=None):
     prev_index = next_index = None
     prev_abstract_index = next_abstract_index = None
     prev_abstract_url = next_abstract_url = None
-    random_annotation_url = random_abstract_url = None
-    models = (model, 'medmentions')
+    random_annotation_index = random_abstract_index = None
     if skip_mode and user:
         next_index = get_next_skip_index(index, model, user, conn)
         prev_index = get_prev_skip_index(index, model, user, conn)
@@ -163,6 +162,34 @@ def get_navigation(index, model, user, skip_mode, conn, pmid=None):
                 if rows:
                     next_abstract_index = rows[0][0]
                     break
+        # Fast random eligible annotation for current model
+        c.execute('''
+            SELECT re.id FROM recognized_entities re
+            JOIN results r ON re.id = r.idx
+            GROUP BY re.id
+            HAVING COUNT(DISTINCT CASE WHEN (r.model = ? OR r.model = 'medmentions') AND r.identifier IS NOT NULL THEN r.identifier END) > (
+                SELECT COUNT(DISTINCT a.identifier)
+                FROM assessment a
+                WHERE a.idx = re.id AND a.user = ?
+                  AND a.identifier IN (
+                    SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions') AND r2.identifier IS NOT NULL
+                  )
+            )
+            AND SUM(CASE WHEN r.model = ? AND r.identifier IS NOT NULL THEN 1 ELSE 0 END) > 0
+            ORDER BY RANDOM() LIMIT 1
+        ''', (model, user, model, model))
+        row = c.fetchone()
+        random_annotation_index = row[0] if row else None
+        # Fast random eligible abstract: pick a random eligible annotation for current model, then use its pmid
+        if random_annotation_index is not None:
+            c.execute('SELECT pmid FROM recognized_entities WHERE id = ?', (random_annotation_index,))
+            pmid_row = c.fetchone()
+            if pmid_row:
+                random_pmid = pmid_row[0]
+                c.execute('''SELECT re.id FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE re.pmid = ? AND r.model = ? AND r.identifier IS NOT NULL ORDER BY RANDOM() LIMIT 1''', (random_pmid, model))
+                row = c.fetchone()
+                if row:
+                    random_abstract_index = row[0]
     else:
         valid_indices = get_valid_indices(model, conn)
         if index in valid_indices:
@@ -187,11 +214,21 @@ def get_navigation(index, model, user, skip_mode, conn, pmid=None):
                 next_row = c.fetchone()
                 if next_row:
                     next_abstract_index = next_row[0]
+        # Fast random annotation for current model
+        c.execute('''SELECT idx FROM results WHERE model = ? AND identifier IS NOT NULL ORDER BY RANDOM() LIMIT 1''', (model,))
+        row = c.fetchone()
+        random_annotation_index = row[0] if row else None
+        # Fast random abstract for current model
+        c.execute('''SELECT re.id FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE r.model = ? AND r.identifier IS NOT NULL ORDER BY RANDOM() LIMIT 1''', (model,))
+        row = c.fetchone()
+        random_abstract_index = row[0] if row else None
     return {
         'prev_index': prev_index,
         'next_index': next_index,
         'prev_abstract_index': prev_abstract_index,
         'next_abstract_index': next_abstract_index,
+        'random_annotation_index': random_annotation_index,
+        'random_abstract_index': random_abstract_index,
         'prev_abstract_url': None,
         'next_abstract_url': None,
         'random_annotation_url': None,

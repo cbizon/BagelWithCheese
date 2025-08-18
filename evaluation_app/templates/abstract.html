@@ -239,6 +239,8 @@
                                     <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'MONDO' -%}
                                     <a href="http://purl.obolibrary.org/obo/MONDO_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'GO' -%}
+                                    <a href="http://purl.obolibrary.org/obo/GO_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'UBERON' -%}
                                     <a href="http://purl.obolibrary.org/obo/UBERON_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'EFO' -%}
@@ -247,6 +249,12 @@
                                     <a href="https://www.ncbi.nlm.nih.gov/gene/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'NCBITaxon' -%}
                                     <a href="http://purl.obolibrary.org/obo/NCBITaxon_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'CHEBI' -%}
+                                    <a href="https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'MESH' -%}
+                                    <a href="https://id.nlm.nih.gov/mesh/{{ local_id }}.html" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'HP' -%}
+                                    <a href="http://purl.obolibrary.org/obo/HP_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- else -%}
                                     {{ info.identifier }}
                                 {%- endif -%}
