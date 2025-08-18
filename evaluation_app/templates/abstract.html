@@ -255,6 +255,10 @@
                                     <a href="https://id.nlm.nih.gov/mesh/{{ local_id }}.html" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'HP' -%}
                                     <a href="http://purl.obolibrary.org/obo/HP_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'UMLS' -%}
+                                    <a href="https://uts.nlm.nih.gov/uts/umls/concept/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'NCIT' -%}
+                                    <a href="https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- else -%}
                                     {{ info.identifier }}
                                 {%- endif -%}
