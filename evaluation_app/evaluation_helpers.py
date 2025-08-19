@@ -84,6 +84,11 @@ def get_next_skip_index(index, model, user, conn):
         GROUP BY re.id
         HAVING SUM(CASE WHEN r.model = ? THEN 1 ELSE 0 END) > 0
            AND SUM(CASE WHEN r.model = 'medmentions' THEN 1 ELSE 0 END) > 0
+           AND (
+                SELECT r1.identifier FROM results r1 WHERE r1.idx = re.id AND r1.model = ?
+            ) IS NOT (
+                SELECT r2.identifier FROM results r2 WHERE r2.idx = re.id AND r2.model = 'medmentions'
+            )
            AND COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
                 SELECT COUNT(DISTINCT a.identifier)
                 FROM assessment a
@@ -93,7 +98,7 @@ def get_next_skip_index(index, model, user, conn):
                   )
             )
         ORDER BY re.id ASC LIMIT 1
-    ''', (index, model, model, user, model))
+    ''', (index, model, model, model, user, model))
     row = c.fetchone()
     return row[0] if row else None
 
@@ -104,16 +109,23 @@ def get_prev_skip_index(index, model, user, conn):
         JOIN results r ON re.id = r.idx
         WHERE re.id < ?
         GROUP BY re.id
-        HAVING COUNT(DISTINCT CASE WHEN (r.model = ? OR r.model = 'medmentions') AND r.identifier IS NOT NULL THEN r.identifier END) > (
-            SELECT COUNT(DISTINCT a.identifier)
-            FROM assessment a
-            WHERE a.idx = re.id AND a.user = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions') AND r2.identifier IS NOT NULL
-              )
-        )
+        HAVING SUM(CASE WHEN r.model = ? THEN 1 ELSE 0 END) > 0
+           AND SUM(CASE WHEN r.model = 'medmentions' THEN 1 ELSE 0 END) > 0
+           AND (
+                SELECT r1.identifier FROM results r1 WHERE r1.idx = re.id AND r1.model = ?
+            ) IS NOT (
+                SELECT r2.identifier FROM results r2 WHERE r2.idx = re.id AND r2.model = 'medmentions'
+            )
+           AND COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
+                SELECT COUNT(DISTINCT a.identifier)
+                FROM assessment a
+                WHERE a.idx = re.id AND a.user = ?
+                  AND a.identifier IN (
+                    SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions')
+                  )
+            )
         ORDER BY re.id DESC LIMIT 1
-    ''', (index, model, user, model))
+    ''', (index, model, model, model, user, model))
     row = c.fetchone()
     return row[0] if row else None
 
