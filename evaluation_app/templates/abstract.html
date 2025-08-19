@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Abstract</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #2c3e50; }
+        .meta { color: #888; margin-bottom: 20px; }
+        .main-flex {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            min-width: 0;
+        }
+        .abstract {
+            font-size: 1.2em;
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            flex: 2 1 0;
+            min-width: 350px;
+            max-width: 70%;
+            margin-right: 40px;
+            overflow-wrap: break-word;
+        }
+        .identifiers-flex {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 380px;
+            max-width: 420px;
+            overflow-x: auto;
+            word-break: break-word;
+        }
+        .original-text-box {
+            background: #f5e9d7;
+            border: 1px solid #e0c9a6;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            font-size: 1.1em;
+            color: #2c3e50;
+            font-weight: bold;
+            text-align: center;
+            word-break: break-all;
+            width: 380px;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .identifier-box {
+            background: #eef6fa;
+            border: 1px solid #b3c6d7;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            width: 380px;
+            max-width: 100%;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(44,62,80,0.08);
+            font-size: 1.1em;
+            word-break: break-all;
+        }
+        .highlighted-entity {
+            background: #ffe066;
+            color: #222;
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-weight: bold;
+        }
+        .identifier-box-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            justify-content: center;
+        }
+        .identifier-box-buttons button {
+            padding: 4px 10px;
+            border: 1px solid #b3c6d7;
+            border-radius: 4px;
+            background: #f7fafc;
+            color: #2c3e50;
+            cursor: pointer;
+            font-size: 0.98em;
+            transition: background 0.2s;
+        }
+        .identifier-box-buttons button:hover {
+            background: #e0ecf7;
+        }
+        .identifier-box.agree {
+            background: #d4f8e5 !important;
+        }
+        .identifier-box.disagree {
+            background: #ffd6d6 !important;
+        }
+        .identifier-box.unsure {
+            background: #fff9d6 !important;
+        }
+        .user-greeting {
+            position: absolute;
+            top: 24px;
+            right: 40px;
+            font-size: 1.1em;
+            color: #2c3e50;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+        .user-greeting-link {
+            display: inline;
+            font-size: 0.95em;
+            color: #337ab7;
+            text-decoration: underline;
+            cursor: pointer;
+            margin: 0 0 0 8px;
+            font-weight: normal;
+        }
+        .navigation-links {
+            margin-bottom: 24px;
+            text-align: center;
+            font-size: 0.98em;
+            width: 380px;
+            max-width: 100%;
+            padding: 16px 20px;
+            box-sizing: border-box;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+        .navigation-links a {
+            color: #337ab7;
+            text-decoration: none;
+            margin: 0 6px;
+            font-weight: bold;
+        }
+        .navigation-links a:hover {
+            text-decoration: underline;
+        }
+        /* Move button color rules to the end for higher precedence */
+        /* End of style block, move these here: */
+        .identifier-box-buttons .btn-accept {
+            background: #d4f8e5 !important;
+            color: #217a4a !important;
+            border-color: #8be0b6 !important;
+        }
+        .identifier-box-buttons .btn-accept:hover {
+            background: #b6f2d6 !important;
+        }
+        .identifier-box-buttons .btn-reject {
+            background: #ffd6d6 !important;
+            color: #a12a2a !important;
+            border-color: #f5a3a3 !important;
+        }
+        .identifier-box-buttons .btn-reject:hover {
+            background: #ffbcbc !important;
+        }
+        .identifier-box-buttons .btn-uncertain {
+            background: #fff9d6 !important;
+            color: #b38b00 !important;
+            border-color: #ffe066 !important;
+        }
+        .identifier-box-buttons .btn-uncertain:hover {
+            background: #fff3a3 !important;
+        }
+        .identifier-box-buttons .btn-reset {
+            background: #f0f0f0 !important;
+            color: #888 !important;
+            border-color: #ccc !important;
+        }
+        .identifier-box-buttons .btn-reset:hover {
+            background: #e0e0e0 !important;
+        }
+        .identifier-box-buttons .selected {
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        .pmid-link {
+            color: inherit;
+            text-decoration: underline;
+        }
+        .pmid-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="user-greeting" id="user-greeting" style="display:none;">
+        <span id="user-greeting-text"></span>
+        <a class="user-greeting-link" id="forget-me-link" style="display:none;">log out</a>
+        <a class="user-greeting-link" id="skip-mode-link" style="display:none; cursor:pointer;">Enter skip mode</a>
+    </div>
+    <div class="container">
+        <h1><a href="https://pubmed.ncbi.nlm.nih.gov/{{ pmid }}/" target="_blank" rel="noopener" class="pmid-link">{{ pmid }}</a></h1>
+        <div class="meta">
+
+        </div>
+        <div class="main-flex">
+            <div class="abstract">{{ abstract|safe }}</div>
+            <div class="identifiers-flex">
+                <div class="navigation-links">
+                    {# Line 1: Abstract navigation #}
+                    {% if prev_abstract_url %}
+                        <a href="{{ prev_abstract_url }}">&#8678; Previous abstract</a>
+                    {% endif %}
+                    {% if next_abstract_url %}
+                        {% if prev_abstract_url %} | {% endif %}
+                        <a href="{{ next_abstract_url }}">Next abstract &#8680;</a>
+                    {% endif %}
+                    <br>
+                    {# Line 2: Annotation navigation #}
+                    {% if prev_index is not none %}
+                        <a href="/{{ prev_index }}">&#8592; Previous annotation</a>
+                    {% endif %}
+                    {% if next_index is not none %}
+                        {% if prev_index is not none %} | {% endif %}
+                        <a href="/{{ next_index }}">Next annotation &#8594;</a>
+                    {% endif %}
+                    <br>
+                    {# Line 3: Random links #}
+                    {% if random_abstract_url %}
+                        <a href="{{ random_abstract_url }}">Random abstract &#128256;</a>
+                    {% endif %}
+                    {% if random_annotation_url %}
+                        {% if random_abstract_url %} | {% endif %}
+                        <a href="{{ random_annotation_url }}">Random annotation &#127922;</a>
+                    {% endif %}
+                </div>
+                {% if original_text %}
+                <div class="original-text-box">{{ original_text }}</div>
+                {% endif %}
+                {% if identifier_infos and identifier_infos|length > 0 %}
+                    {% for info in identifier_infos %}
+                        <div class="identifier-box" data-identifier="{{ info.identifier }}">
+                            {%- set curie_parts = info.identifier.split(':', 1) -%}
+                            {%- set prefix = curie_parts[0] -%}
+                            {%- set local_id = curie_parts[1] if curie_parts|length > 1 else '' -%}
+                            <div style="font-family:monospace; font-size:1.05em; margin-bottom:4px;">
+                                {%- if prefix == 'PUBCHEM.COMPOUND' -%}
+                                    <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'MONDO' -%}
+                                    <a href="http://purl.obolibrary.org/obo/MONDO_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'GO' -%}
+                                    <a href="http://purl.obolibrary.org/obo/GO_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'UBERON' -%}
+                                    <a href="http://purl.obolibrary.org/obo/UBERON_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'EFO' -%}
+                                    <a href="http://www.ebi.ac.uk/efo/EFO_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'NCBIGene' -%}
+                                    <a href="https://www.ncbi.nlm.nih.gov/gene/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'NCBITaxon' -%}
+                                    <a href="http://purl.obolibrary.org/obo/NCBITaxon_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'CHEBI' -%}
+                                    <a href="https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'MESH' -%}
+                                    <a href="https://id.nlm.nih.gov/mesh/{{ local_id }}.html" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'HP' -%}
+                                    <a href="http://purl.obolibrary.org/obo/HP_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'UMLS' -%}
+                                    <a href="https://uts.nlm.nih.gov/uts/umls/concept/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'NCIT' -%}
+                                    <a href="https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- else -%}
+                                    {{ info.identifier }}
+                                {%- endif -%}
+                            </div>
+                            {% if info.label %}
+                                <div style="font-weight:bold; color:#2c3e50; margin-bottom:2px;">{{ info.label }}</div>
+                            {% endif %}
+                            {% if info.type %}
+                                <div style="font-size:0.95em; color:#888; margin-bottom:2px;">{{ info.type }}</div>
+                            {% endif %}
+                            {% if info.description %}
+                                <div style="font-size:0.95em; color:#555; margin-top:6px;">{{ info.description }}</div>
+                            {% endif %}
+                            <div class="identifier-box-buttons">
+                                <button type="button" class="btn-accept">✓</button>
+                                <button type="button" class="btn-reject">✗</button>
+                                <button type="button" class="btn-uncertain">?</button>
+                                <button type="button" class="btn-reset"></button>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <script type="text/javascript">
+    // Global JS error handler for debugging
+    window.onerror = function(message, source, lineno, colno, error) {
+        console.error('[GlobalError]', message, 'at', source + ':' + lineno + ':' + colno, error);
+    }
+
+    // Expose user assessments as a JS variable
+    var userAssessments = {{ user_assessments|tojson|default('null', true)|safe }};
+
+    // Cookie helpers
+    function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days*24*60*60*1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "") + expires + "; path=/";
+    }
+    function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+        }
+        return null;
+    }
+    function eraseCookie(name) {
+        document.cookie = name+'=; Max-Age=-99999999; path=/';
+    }
+
+    function updateGreeting(name) {
+        const greeting = document.getElementById('user-greeting');
+        const greetingText = document.getElementById('user-greeting-text');
+        const forgetLink = document.getElementById('forget-me-link');
+        const skipModeLink = document.getElementById('skip-mode-link');
+        console.log('[updateGreeting] called with name:', name);
+        greeting.style.display = '';
+        if (name) {
+            greetingText.textContent = `Hi, ${name}`;
+            forgetLink.style.display = '';
+            skipModeLink.style.display = '';
+            updateSkipModeLink();
+            console.log('[updateGreeting] showing skipModeLink:', skipModeLink, 'display:', skipModeLink.style.display);
+        } else {
+            greetingText.innerHTML = '<a id="login-link" class="user-greeting-link" style="cursor:pointer;">Identify yourself to start assessing!</a>';
+            forgetLink.style.display = 'none';
+            skipModeLink.style.display = 'none';
+            // Add click handler for login link
+            const loginLink = document.getElementById('login-link');
+            if (loginLink) {
+                loginLink.onclick = function() {
+                    let userName = prompt('Please enter your name (for internal use only):');
+                    if (userName && userName.trim()) {
+                        userName = userName.trim();
+                        localStorage.setItem('userName', userName);
+                        setCookie('user', userName, 365);
+                        // Set skip mode OFF on login
+                        localStorage.setItem('skipMode', 'off');
+                        setCookie('skip_mode', '0', 365);
+                        // Reload page to fetch correct assessments and state
+                        window.location.reload();
+                    }
+                };
+            }
+            console.log('[updateGreeting] showing identify message as link, hiding links');
+        }
+        updateAssessmentButtonsVisibility();
+    }
+
+    function updateAssessmentButtonsVisibility() {
+        let userName = localStorage.getItem('userName');
+        document.querySelectorAll('.identifier-box-buttons').forEach(function(btnGroup) {
+            btnGroup.style.display = userName ? '' : 'none';
+        });
+    }
+
+    // --- Skip Mode Logic ---
+    function setSkipModeState(isOn) {
+        localStorage.setItem('skipMode', isOn ? 'on' : 'off');
+        setCookie('skip_mode', isOn ? '1' : '0', 365);
+        updateSkipModeLink();
+        // Reload page to ensure backend navigation updates
+        window.location.reload();
+    }
+    function getSkipModeState() {
+        // Prefer cookie for backend sync
+        return getCookie('skip_mode') === '1';
+    }
+    function updateSkipModeLink() {
+        const skipModeLink = document.getElementById('skip-mode-link');
+        if (getSkipModeState()) {
+            skipModeLink.textContent = 'Exit skip mode';
+        } else {
+            skipModeLink.textContent = 'Enter skip mode';
+        }
+    }
+    function updateNavigationLinks() {
+        // No longer modify navigation URLs for skip mode
+    }
+    // --- End Skip Mode Logic ---
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Sync localStorage and cookie for user
+        let userName = localStorage.getItem('userName');
+        let cookieUser = getCookie('user');
+        if (userName && !cookieUser) {
+            setCookie('user', userName, 365);
+        } else if (!userName && cookieUser) {
+            localStorage.setItem('userName', cookieUser);
+            userName = cookieUser;
+        }
+        updateGreeting(userName);
+
+        // Also update assessment buttons visibility on load
+        updateAssessmentButtonsVisibility();
+
+        // Remove user from cookie and localStorage on forget
+        document.getElementById('forget-me-link').addEventListener('click', function() {
+            localStorage.removeItem('userName');
+            eraseCookie('user');
+            updateGreeting(null);
+            updateAssessmentButtonsVisibility();
+            window.location.reload();
+        });
+
+        // Toggle skip mode (ensure not duplicated)
+        const skipModeLinkEl = document.getElementById('skip-mode-link');
+        skipModeLinkEl.onclick = null;
+        skipModeLinkEl.addEventListener('click', function() {
+            setSkipModeState(!getSkipModeState());
+            console.log('[skipModeLink] toggled, now:', getSkipModeState());
+        });
+
+        // Remove user param from navigation links (no longer needed)
+        document.querySelectorAll('.meta a').forEach(function(link) {
+            let url = new URL(link.href, window.location.origin);
+            url.searchParams.delete('user');
+            link.href = url.pathname + url.search;
+        });
+
+        // Color identifier boxes based on user assessments
+        // Debug: Log userAssessments and userName
+        console.log('[Assessments Debug] userAssessments:', userAssessments, 'userName:', userName);
+        if (userName && userAssessments) {
+            document.querySelectorAll('.identifier-box').forEach(function(box) {
+                const identifier = box.getAttribute('data-identifier');
+                const assessment = userAssessments[identifier];
+                console.log('[Assessments Debug] identifier:', identifier, 'assessment:', assessment);
+                if (assessment === 'agree') {
+                    box.classList.add('agree');
+                } else if (assessment === 'disagree') {
+                    box.classList.add('disagree');
+                } else if (assessment === 'unsure') {
+                    box.classList.add('unsure');
+                }
+                // Set selected button for pre-existing assessment
+                const btns = box.querySelectorAll('.identifier-box-buttons button');
+                btns.forEach(btn => btn.classList.remove('selected'));
+                if (assessment === 'agree') {
+                    btns[0].classList.add('selected');
+                } else if (assessment === 'disagree') {
+                    btns[1].classList.add('selected');
+                } else if (assessment === 'unsure') {
+                    btns[2].classList.add('selected');
+                }
+            });
+        }
+
+    var currentIdx = {{ current_index|tojson|default('null', true)|safe }};
+    document.querySelectorAll('.identifier-box-buttons').forEach(function(btnGroup) {
+        btnGroup.addEventListener('click', function(e) {
+            if (e.target.tagName !== 'BUTTON') return;
+            // If no user name, prompt for it
+            let userName = localStorage.getItem('userName');
+            if (!userName) {
+                userName = prompt('Please enter your name (for internal use only):');
+                if (userName && userName.trim()) {
+                    userName = userName.trim();
+                    localStorage.setItem('userName', userName);
+                    setCookie('user', userName, 365);
+                    // Set skip mode OFF on login
+                    localStorage.setItem('skipMode', 'off');
+                    setCookie('skip_mode', '0', 365);
+                    // Reload page to fetch correct assessments and state
+                    window.location.reload();
+                    return;
+                } else {
+                    // Don't proceed if no name entered
+                    return;
+                }
+            }
+            const box = btnGroup.closest('.identifier-box');
+            // Remove all state classes
+            box.classList.remove('agree', 'disagree', 'unsure');
+            // Remove selected from all buttons in this group
+            btnGroup.querySelectorAll('button').forEach(btn => btn.classList.remove('selected'));
+            let assessment = '';
+            if (e.target.textContent === '✓') {
+                box.classList.add('agree');
+                assessment = 'agree';
+                e.target.classList.add('selected');
+                // Send assessment to backend
+                fetch('/submit_assessment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        idx: currentIdx,
+                        identifier: box.getAttribute('data-identifier'),
+                        user: userName,
+                        assessment: assessment
+                    })
+                });
+            } else if (e.target.textContent === '✗') {
+                box.classList.add('disagree');
+                assessment = 'disagree';
+                e.target.classList.add('selected');
+                fetch('/submit_assessment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        idx: currentIdx,
+                        identifier: box.getAttribute('data-identifier'),
+                        user: userName,
+                        assessment: assessment
+                    })
+                });
+            } else if (e.target.textContent === '?') {
+                box.classList.add('unsure');
+                assessment = 'unsure';
+                e.target.classList.add('selected');
+                fetch('/submit_assessment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        idx: currentIdx,
+                        identifier: box.getAttribute('data-identifier'),
+                        user: userName,
+                        assessment: assessment
+                    })
+                });
+            } else { // clear
+                // Send delete request to backend
+                fetch('/delete_assessment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        idx: currentIdx,
+                        identifier: box.getAttribute('data-identifier'),
+                        user: userName
+                    })
+                });
+            }
+        });
+    });
+});
+    </script>
+</body>
+</html>

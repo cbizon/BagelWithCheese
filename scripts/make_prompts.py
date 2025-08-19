@@ -38,88 +38,102 @@ class SynonymListContext(BaseModel):
             string += "\n]\n"
         return string
 
-def load_abbreviation_map(abbrev_file):
-    pmid_to_abbrev = {}
-    with open(abbrev_file) as f:
-        for line in f:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            pmid = row["pmid"]
-            abbr_list = row["abbreviation_map"]  # Now always a list, not a string
-            abbr_map = {entry["abbreviation"]: entry["definition"] for entry in abbr_list}
-            pmid_to_abbrev[pmid] = abbr_map
-    return pmid_to_abbrev
+def preprocess_annotation_map(annotation_map):
+    unique = {}
+    for expanded_text, entries in annotation_map.items():
+        for entry in entries:
+            pmid = entry["pmid"]
+            original_entity = entry["original_entity"]
+            try:
+                medmentions_type = entry["medmentions"]["biolink_types"][0]
+            except Exception:
+                medmentions_type = "biolink:NamedThing"
+            key = (str(pmid), original_entity)
+            if key not in unique:
+                unique[key] = {
+                    "pmid": pmid,
+                    "expanded_text": expanded_text,
+                    "original_text": original_entity,
+                    "medmentions_type": medmentions_type
+                }
+    # Order by pmid (as int if possible)
+    def pmid_sort_key(x):
+        try:
+            return int(x["pmid"])
+        except Exception:
+            return x["pmid"]
+    result = [
+        {"id": i, **row} for i, row in enumerate(sorted(unique.values(), key=pmid_sort_key))
+    ]
+    return result
 
 def create_body(
-    annotations_file_name: str,
+    annotation_list: list,
     pmid_abstracts: dict,
     prompt: str,
     threshold: int,
-    abbrev_map: dict,
+    expanded_annotations_dict: dict,
     bodies_outfile: str,
     color_map_outfile: str
 ):
     outbodies = []
     color_maps = []
-    seen = set()  # Track (pmid, entity or definition) pairs
-    with open(annotations_file_name) as stream:
-        for idx, line in enumerate(stream):
-            try:
-                annotation_obj = json.loads(line)
-            except Exception as e:
-                print(line)
-                raise e
-            entity = annotation_obj['entity']
-            pmid = annotation_obj['pmid']
-            # Only process if pmid is in abbrev_map
-            if pmid not in abbrev_map:
-                continue
-            # Check for abbreviation replacement
-            definition = None
-            if pmid in abbrev_map and entity in abbrev_map[pmid]:
-                definition = abbrev_map[pmid][entity]
-            # Only write if neither entity nor definition has been written for this pmid
-            key_entity = (pmid, entity)
-            key_def = (pmid, definition) if definition else None
-            if key_entity in seen or (key_def and key_def in seen):
-                continue
-            # If writing the definition, mark both abbreviation and definition as seen
-            if definition:
-                seen.add(key_entity)
-                seen.add(key_def)
-                entity_to_use = definition
-            else:
-                seen.add(key_entity)
-                entity_to_use = entity
-            context = SynonymListContext(
-                text=pmid_abstracts[pmid],
-                entity=entity_to_use,
-                synonyms=[
-                    Entity(**{
-                        "label": value["name"],
-                        "identifier": identifier,
-                        "description": value.get("description", ""),
-                        "entity_type": value.get("category", ""),
-                        "taxa": ", ".join([value.get("taxa", "")])
-                    }) for identifier, value in annotation_obj['annotations'].items()
-                    if ((value["name_res_rank"]>-1 and value["name_res_rank"] <= threshold) or (value["sapbert_rank"] >-1 and value["sapbert_rank"] <= threshold))
-                ]
+    for row in annotation_list:
+        idx = row["id"]
+        pmid = row["pmid"]
+        entity = row["original_text"]
+        expanded_text = row["expanded_text"]
+        medmentions_type = row["medmentions_type"]
+        key_entity = (pmid, entity)
+        if expanded_text not in expanded_annotations_dict:
+            continue
+        # Get candidate entities for this expanded_text from expanded_annotations_dict
+        candidates_dict = expanded_annotations_dict.get(expanded_text, {})
+        if not isinstance(candidates_dict, dict):
+            print(f"[DEBUG] Unexpected candidates_dict type for expanded_text: {expanded_text}\nValue: {candidates_dict}\nType: {type(candidates_dict)}")
+            continue
+        synonyms = [
+            Entity(**{
+                "label": value.get("name", identifier),
+                "identifier": identifier,
+                "description": value.get("description", ""),
+                "entity_type": value.get("category", ""),
+                "taxa": ", ".join([value.get("taxa", "")])
+            })
+            for identifier, value in candidates_dict.items()
+            if identifier != "annotated_text" and (
+                (value.get("name_res_rank", -1) > -1 and value.get("name_res_rank", -1) <= threshold) or
+                (value.get("sapbert_rank", -1) > -1 and value.get("sapbert_rank", -1) <= threshold)
             )
-            prompt_message = prompt.format(**{
-                'text': context.text,
-                'query_term': context.entity,
-                'synonyms': context.pretty_print_synonyms()
-            })
-            outbodies.append({"index": idx, "prompt": prompt_message})
-            labels = {syn.color_code: syn.label for syn in context.synonyms}
-            taxons = {syn.color_code: syn.taxa for syn in context.synonyms}
-            color_maps.append({
-                "index": idx,
-                "entity": entity_to_use,
-                "labels": labels,
-                "taxons": taxons
-            })
+        ]
+        context = SynonymListContext(
+            text=pmid_abstracts[pmid],
+            entity=entity,
+            synonyms=synonyms
+        )
+        prompt_message = prompt.format(**{
+            'text': context.text,
+            'query_term': context.entity,
+            'synonyms': context.pretty_print_synonyms()
+        })
+        outbodies.append({"index": idx, "prompt": prompt_message})
+        labels = {syn.color_code: syn.label for syn in context.synonyms}
+        taxons = {syn.color_code: syn.taxa for syn in context.synonyms}
+        identifiers = {syn.color_code: syn.identifier for syn in context.synonyms}
+        color_maps.append({
+            "index": idx,
+            "entity": entity,
+            "putative_type": medmentions_type,
+            "labels": labels,
+            "taxons": taxons,
+            "identifiers": identifiers
+        })
+    # Reorder outbodies so that those with putative_type == "biolink:InformationContentEntity" are at the end
+    index_to_type = {cm["index"]: cm["putative_type"] for cm in color_maps}
+    non_info = [b for b in outbodies if index_to_type.get(b["index"]) != "biolink:InformationContentEntity"]
+    info = [b for b in outbodies if index_to_type.get(b["index"]) == "biolink:InformationContentEntity"]
+    print(len(non_info), len(info))
+    outbodies = non_info + info
     # Write output files
     with open(bodies_outfile, "w") as outf:
         for body in outbodies:
@@ -127,6 +141,32 @@ def create_body(
     with open(color_map_outfile, "w") as cmf:
         for color_map in color_maps:
             cmf.write(json.dumps(color_map) + "\n")
+
+def load_expanded_annotations_jsonl(path):
+    """
+    Reads expanded_annotations.jsonl and returns a dict:
+    { text: { identifier: stuff, identifier: stuff } }
+    Ensures all values are dicts. Logs and skips any non-dict values.
+    """
+    result = {}
+    with open(path) as f:
+        for line in f:
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            if "error" in obj:
+                continue
+            text = obj["annotated_text"]
+            entry = {}
+            for k, v in obj.items():
+                if k == "annotated_text":
+                    continue
+                if isinstance(v, dict):
+                    entry[k] = v
+                else:
+                    print(f"[WARN] Skipping identifier '{k}' for text '{text}' in expanded_annotations.jsonl because value is not a dict: {v}")
+            result[text] = entry
+    return result
 
 def main():
     parser = argparse.ArgumentParser()
@@ -136,18 +176,31 @@ def main():
     run_dir = os.path.join('data', args.run)
     parsed_inputs_dir = os.path.join(run_dir, 'parsed_inputs')
     os.makedirs(parsed_inputs_dir, exist_ok=True)
-    annotations_file_name = os.path.join('input_data', 'annotations-7-30-25.jsonl')
+    annotations_file_name = os.path.join('input_data', 'expanded_annotations.jsonl')
     abstracts_file = os.path.join('input_data', 'corpus_pubtator_normalized_8-4-2025.jsonl')
     prompt_template_file = os.path.join('input_data', 'prompt_template')
-    abbrev_file = os.path.join('input_data', 'abbreviation_llm_results.jsonl')
     with open(abstracts_file) as f:
         pmid_abstracts = {json.loads(line)['pmid']: json.loads(line)['text'] for line in f if line.strip()}
     with open(prompt_template_file) as f:
         prompt = f.read().strip()
-    abbrev_map = load_abbreviation_map(abbrev_file)
     bodies_outfile = os.path.join(parsed_inputs_dir, f"bodies_{args.threshold}.jsonl")
     color_map_outfile = os.path.join(parsed_inputs_dir, f"bodies_{args.threshold}_colormap.jsonl")
-    create_body(annotations_file_name, pmid_abstracts, prompt, args.threshold, abbrev_map, bodies_outfile, color_map_outfile)
+    # Load entity map
+    entity_map_file = os.path.join('input_data', 'expanded_annotations_entity_map.json')
+    with open(entity_map_file) as f:
+        entity_map = json.load(f)
+    preprocessed_annotations = preprocess_annotation_map(entity_map)
+    # Write preprocessed_annotations to annotation_list.jsonl
+    annotation_list_outfile = os.path.join(parsed_inputs_dir, 'annotation_list.jsonl')
+    with open(annotation_list_outfile, 'w') as out_f:
+        for item in preprocessed_annotations:
+            out_f.write(json.dumps(item) + '\n')
+    # Load expanded annotations
+    expanded_annotations_file = os.path.join('input_data', 'expanded_annotations.jsonl')
+    expanded_annotations_dict = load_expanded_annotations_jsonl(expanded_annotations_file)
+    # Preprocess annotation map
+    # Create body and color map files
+    create_body(preprocessed_annotations, pmid_abstracts, prompt, args.threshold, expanded_annotations_dict, bodies_outfile, color_map_outfile)
 
 if __name__ == "__main__":
     main()
