@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Results Summary</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        h1 { color: #2c3e50; }
+        .model-section {
+            margin-bottom: 32px;
+            padding: 18px 24px;
+            background: #f7f7fa;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(44,62,80,0.06);
+            max-width: 500px;
+        }
+        .model-title {
+            font-size: 1.2em;
+            color: #222;
+            margin-bottom: 8px;
+        }
+        .assessed-count {
+            font-size: 1.1em;
+            color: #337ab7;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+        }
+        th, td {
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Results Summary</h1>
+    {% if not assessor %}
+        <div style="color: #a12a2a; font-size: 1.1em; margin-bottom: 24px;">Please log in or identify yourself to see your assessed results summary.</div>
+    {% else %}
+        <div style="color: #555; font-size: 1.05em; margin-bottom: 18px;">Showing assessed results for user: <b>{{ assessor }}</b></div>
+        {% if model_summaries and model_summaries|length > 0 %}
+            {% for summary in model_summaries %}
+                <div class="model-section">
+                    <div class="model-title">Model: <b>{{ summary.model }}</b></div>
+                    <div>Total results: <b>{{ summary.total }}</b></div>
+                    <div>NULLs: <b>{{ summary.null_count }}</b> ({{ (summary.null_fraction * 100) | round(1) }}%)</div>
+                    <div class="assessed-count">Assessed results (for you): <b>{{ summary.assessed_count }}</b></div>
+                    <div style="margin-top: 16px;">
+                        <b>Summary (vs. medmentions):</b>
+                        <table border="1" cellpadding="6" style="margin-top: 6px; border-collapse: collapse;">
+                            <tr style="background: #eaeaea;">
+                                <th>Agree</th>
+                                <th>Disagree</th>
+                                <th>Null</th>
+                            </tr>
+                            <tr>
+                                <td>
+                                    {{ summary.confusion_matrix.match }}
+                                    {% if summary.confusion_matrix.total > 0 %}
+                                        ({{ (summary.confusion_matrix.match / summary.confusion_matrix.total * 100) | round(1) }}%)
+                                    {% else %}
+                                        (0.0%)
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ summary.confusion_matrix.disagree }}
+                                    {% if summary.confusion_matrix.total > 0 %}
+                                        ({{ (summary.confusion_matrix.disagree / summary.confusion_matrix.total * 100) | round(1) }}%)
+                                    {% else %}
+                                        (0.0%)
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ summary.confusion_matrix.null }}
+                                    {% if summary.confusion_matrix.total > 0 %}
+                                        ({{ (summary.confusion_matrix.null / summary.confusion_matrix.total * 100) | round(1) }}%)
+                                    {% else %}
+                                        (0.0%)
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div style="margin-top: 24px;">
+                        <b>Confusion Matrix (MedMentions vs. Model vs. Assessment):</b>
+                        {% set matrix = summary.assessment_confusion_matrix %}
+                        {% set med_states = ['True', 'False', 'Unsure'] %}
+                        {% set model_states = ['True', 'False', 'Unsure', 'Null'] %}
+                        <table border="1" cellpadding="6" style="margin-top: 8px; border-collapse: collapse;">
+                            <tr style="background: #eaeaea;">
+                                <th></th>
+                                {% for model_state in model_states %}
+                                    <th>{{ model_state }}</th>
+                                {% endfor %}
+                                <th>Total</th>
+                            </tr>
+                            {% for med_state in med_states %}
+                                <tr>
+                                    <th>{{ med_state }}</th>
+                                    {% for model_state in model_states %}
+                                        <td>{{ matrix[med_state][model_state] }}</td>
+                                    {% endfor %}
+                                    <td>
+                                        {{ summary.assessment_confusion_matrix_row_totals[med_state] }}
+                                        {% if summary.assessment_confusion_matrix_grand_total > 0 %}
+                                            ({{ (summary.assessment_confusion_matrix_row_totals[med_state] / summary.assessment_confusion_matrix_grand_total * 100) | round(1) }}%)
+                                        {% else %}
+                                            (0.0%)
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            <tr style="background: #f2f2f2; font-weight: bold;">
+                                <th>Total</th>
+                                {% for model_state in model_states %}
+                                    <td>
+                                        {{ summary.assessment_confusion_matrix_col_totals[model_state] }}
+                                        {% if summary.assessment_confusion_matrix_grand_total > 0 %}
+                                            ({{ (summary.assessment_confusion_matrix_col_totals[model_state] / summary.assessment_confusion_matrix_grand_total * 100) | round(1) }}%)
+                                        {% else %}
+                                            (0.0%)
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                                <td>{{ summary.assessment_confusion_matrix_grand_total }} (100%)</td>
+                            </tr>
+                        </table>
+                        <div style="margin-top: 8px; color: #666; font-size: 0.95em;">
+                            <b>Note:</b> Rows = MedMentions assessment state; Columns = Model assessment state. "Null" means the model result was null or missing. Marginal totals show both count and percent of the grand total.
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div>No models or assessments found for this user.</div>
+        {% endif %}
+    {% endif %}
+</body>
+</html>
