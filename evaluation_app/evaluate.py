@@ -174,5 +174,208 @@ def delete_assessment():
     conn.close()
     return jsonify({'status': 'success'})
 
+def calculate_confusion_matrix(model):
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    # Get all indices where medmentions has a result
+    sql = q('''
+        SELECT mm.idx, mm.identifier as medmentions_id, m.identifier as model_id, m.rowid as model_row_exists
+        FROM results mm
+        LEFT JOIN results m ON m.idx = mm.idx AND m.model = ?
+        WHERE mm.model = 'medmentions' AND mm.identifier IS NOT NULL
+    ''')
+    cursor.execute(sql, (model,))
+    rows = cursor.fetchall()
+    summary = {'match': 0, 'disagree': 0, 'null': 0}
+    for idx, medmentions_id, model_id, model_row_exists in rows:
+        if model_row_exists is None:
+            # No row for the model: skip
+            continue
+        if model_id is None:
+            # Model row exists and identifier is NULL
+            summary['null'] += 1
+        elif model_id == medmentions_id:
+            summary['match'] += 1
+        else:
+            summary['disagree'] += 1
+    # Add total for agree/disagree/null percentage calculation
+    summary['total'] = summary['match'] + summary['disagree'] + summary['null']
+    conn.close()
+    return summary
+
+@app.route('/results')
+def results_summary():
+    assessor = request.cookies.get('assessor') or request.args.get('assessor')
+    if not assessor:
+        return render_template('results.html', model_summaries=None, assessor=None)
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    # Get all models (excluding medmentions)
+    sql_models = q("SELECT DISTINCT model FROM results WHERE model != 'medmentions' ORDER BY model")
+    cursor.execute(sql_models)
+    models = [row[0] for row in cursor.fetchall()]
+    model_summaries = []
+    for model in models:
+        # Total results for this model
+        sql_total = q("SELECT COUNT(*) FROM results WHERE model = ?")
+        cursor.execute(sql_total, (model,))
+        total = cursor.fetchone()[0]
+        # NULLs for this model
+        sql_nulls = q("SELECT COUNT(*) FROM results WHERE model = ? AND identifier IS NULL")
+        cursor.execute(sql_nulls, (model,))
+        null_count = cursor.fetchone()[0]
+        null_fraction = (null_count / total) if total > 0 else 0.0
+        # Assessed by this user
+        sql_assessed = q("""
+            SELECT COUNT(DISTINCT r.idx)
+            FROM results r
+            JOIN assessment a ON r.idx = a.idx AND r.identifier = a.identifier
+            WHERE r.model = ? AND a.assessor = ?
+        """)
+        cursor.execute(sql_assessed, (model, assessor))
+        assessed_count = cursor.fetchone()[0]
+        # Add confusion matrix
+        confusion = calculate_confusion_matrix(model)
+        # Add assessment confusion matrix
+        assessment_confusion = calculate_confusion_matrix_vs_assessment(model, assessor)
+        # Calculate row, column, and grand totals for the assessment confusion matrix
+        med_states = ['True', 'False', 'Unsure']
+        model_states = ['True', 'False', 'Unsure', 'Null']
+        row_totals = {med: sum(assessment_confusion[med][m] for m in model_states) for med in med_states}
+        col_totals = {m: sum(assessment_confusion[med][m] for med in med_states) for m in model_states}
+        grand_total = sum(row_totals.values())
+        model_summaries.append({
+            'model': model,
+            'total': total,
+            'null_count': null_count,
+            'null_fraction': null_fraction,
+            'assessed_count': assessed_count,
+            'confusion_matrix': confusion,
+            'assessment_confusion_matrix': assessment_confusion,
+            'assessment_confusion_matrix_row_totals': row_totals,
+            'assessment_confusion_matrix_col_totals': col_totals,
+            'assessment_confusion_matrix_grand_total': grand_total
+        })
+    conn.close()
+    return render_template('results.html', model_summaries=model_summaries, assessor=assessor)
+
+@app.route('/confusion_matrix')
+def confusion_matrix():
+    # Get selected model from query param or cookie or default
+    models = get_all_models()
+    selected_model = request.args.get('model') or request.cookies.get('selected_model')
+    if not selected_model or selected_model not in models:
+        selected_model = app.config['MODEL']
+    model = selected_model
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    # Get all rows for this model, with medmentions
+    sql = q('''
+        SELECT r.idx,
+               mm.identifier as medmentions_id,
+               m.identifier as model_id
+        FROM results r
+        LEFT JOIN results mm ON mm.idx = r.idx AND mm.model = 'medmentions'
+        LEFT JOIN results m ON m.idx = r.idx AND m.model = ?
+        WHERE r.model = 'medmentions' OR r.model = ?
+        GROUP BY r.idx
+    ''')
+    cursor.execute(sql, (model, model))
+    rows = cursor.fetchall()
+    # Build confusion matrix
+    # Rows: medmentions (present, null)
+    # Columns: model (agrees, disagrees, is null)
+    matrix = {
+        'medmentions_present': {'agrees': 0, 'disagrees': 0, 'is_null': 0},
+        'medmentions_null': {'agrees': 0, 'disagrees': 0, 'is_null': 0}
+    }
+    for idx, medmentions_id, model_id in rows:
+        medmentions_is_null = medmentions_id is None
+        model_is_null = model_id is None
+        if medmentions_is_null:
+            row_key = 'medmentions_null'
+        else:
+            row_key = 'medmentions_present'
+        if model_is_null:
+            col_key = 'is_null'
+        elif not medmentions_is_null and model_id == medmentions_id:
+            col_key = 'agrees'
+        else:
+            col_key = 'disagrees'
+        matrix[row_key][col_key] += 1
+    conn.close()
+    return render_template('confusion_matrix.html', matrix=matrix, model=model)
+
+def calculate_confusion_matrix_vs_assessment(model, assessor):
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    # Get all idx with medmentions and model results
+    sql = q('''
+        SELECT r.idx,
+               mm.identifier as medmentions_id,
+               m.identifier as model_id
+        FROM results r
+        LEFT JOIN results mm ON mm.idx = r.idx AND mm.model = 'medmentions'
+        LEFT JOIN results m ON m.idx = r.idx AND m.model = ?
+        WHERE r.model = 'medmentions' OR r.model = ?
+        GROUP BY r.idx
+    ''')
+    cursor.execute(sql, (model, model))
+    rows = cursor.fetchall()
+    # Confusion matrix: rows=medmentions (True, False, Unsure), cols=model (True, False, Unsure, Null)
+    matrix = {
+        'True':    {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
+        'False':   {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
+        'Unsure':  {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
+    }
+    from evaluation_helpers import get_assessor_assessments
+    for idx, medmentions_id, model_id in rows:
+        # If medmentions and model agree (same non-null identifier), both are True
+        if medmentions_id is not None and model_id is not None and medmentions_id == model_id:
+            matrix['True']['True'] += 1
+            continue
+        # Otherwise, only consider idx if:
+        # - For every non-null result (medmentions or model), there is an assessment for that identifier
+        # - There is a result for the model (not missing)
+        if model_id is None:
+            model_state = 'Null'
+        else:
+            model_state = None
+        # Get all assessments for this idx and assessor
+        assessments = get_assessor_assessments(idx, assessor, conn, paramstyle)
+        # Check if all non-null results have assessments
+        needed = []
+        if medmentions_id is not None:
+            needed.append(medmentions_id)
+        if model_id is not None:
+            needed.append(model_id)
+        if any(nid not in assessments for nid in needed):
+            continue  # skip idx if any assessment missing
+        # Map assessment values to states
+        def map_assessment(val):
+            if val is None:
+                return 'Null'
+            v = val.lower()
+            if v == 'agree':
+                return 'True'
+            elif v == 'disagree':
+                return 'False'
+            elif v == 'unsure':
+                return 'Unsure'
+            return 'Null'
+        med_state = map_assessment(assessments.get(medmentions_id)) if medmentions_id is not None else 'Null'
+        model_state = map_assessment(assessments.get(model_id)) if model_id is not None else 'Null'
+        matrix[med_state][model_state] += 1
+    conn.close()
+    return matrix
+
+@app.route('/confusion_matrix_assessment')
+def confusion_matrix_assessment():
+    assessor = request.cookies.get('assessor') or request.args.get('assessor')
+    if not assessor:
+        return 'Assessor required', 400
+    models = get_all_models()
+    selected_model = request.args.get('model') or request.cookies.get('selected_model')
+    if not selected_model or selected_model not in models:
+        selected_model = app.config['MODEL']
+    matrix = calculate_confusion_matrix_vs_assessment(selected_model, assessor)
+    return render_template('confusion_matrix_assessment.html', matrix=matrix, model=selected_model, assessor=assessor)
+
 if __name__ == '__main__':
     app.run(debug=True)

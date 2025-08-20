@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Confusion Matrix: Model vs. MedMentions vs. Assessment</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        h1 { color: #2c3e50; }
+        table { border-collapse: collapse; margin-top: 18px; }
+        th, td { border: 1px solid #aaa; padding: 8px 16px; text-align: center; }
+        th { background: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>Confusion Matrix: Model vs. MedMentions vs. Assessment</h1>
+    <div style="margin-bottom: 12px;">
+        <b>Model:</b> {{ model }}<br>
+        <b>Assessor:</b> {{ assessor }}
+    </div>
+    <table>
+        <tr>
+            <th>MedMentions \ Model</th>
+            <th>True</th>
+            <th>False</th>
+            <th>Unsure</th>
+            <th>Null</th>
+        </tr>
+        {% for med_state in ['True', 'False', 'Unsure'] %}
+        <tr>
+            <th>{{ med_state }}</th>
+            <td>{{ matrix[med_state]['True'] }}</td>
+            <td>{{ matrix[med_state]['False'] }}</td>
+            <td>{{ matrix[med_state]['Unsure'] }}</td>
+            <td>{{ matrix[med_state]['Null'] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <div style="margin-top: 18px; color: #666; font-size: 0.95em;">
+        <b>Note:</b> Rows = MedMentions assessment state; Columns = Model assessment state. "Null" means the model result was null or missing.
+    </div>
+</body>
+</html>
+
