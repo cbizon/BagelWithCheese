@@ -2,16 +2,13 @@ from flask import Flask, request, render_template, redirect, url_for, jsonify
 import sqlite3
 import os
 import argparse
-import random
 import sys
-import re
+import psycopg2
 from evaluation_helpers import (
     get_abstract_metadata,
     get_valid_indices,
     get_identifier_infos,
-    get_user_assessments,
-    get_next_skip_index,
-    get_prev_skip_index,
+    get_assessor_assessments,
     get_navigation
 )
 
@@ -20,40 +17,45 @@ app = Flask(__name__)
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True, help='Model name')
-    parser.add_argument('--run', required=True, help='Run name')
     return parser.parse_args()
 
 args = get_args()
 app.config['MODEL'] = args.model
-app.config['RUN'] = args.run
 
-# Check if model exists in results table before starting the app
-run = args.run
-model = args.model
-db_path = os.path.join('data', run, 'evaluation.db')
-if not os.path.exists(db_path):
-    print(f"ERROR: Database not found at {db_path}")
-    sys.exit(1)
-conn = sqlite3.connect(db_path)
-c = conn.cursor()
-c.execute('SELECT 1 FROM results WHERE model = ? LIMIT 1', (model,))
-if not c.fetchone():
-    print(f"ERROR: Model '{model}' not found in results table of {db_path}.")
-    conn.close()
-    sys.exit(1)
-conn.close()
+def get_db_connection():
+    backend = os.environ.get('DB_BACKEND', 'sqlite').lower()
+    if backend == 'postgres':
+        host = os.environ.get('DB_HOST', 'localhost')
+        port = int(os.environ.get('DB_PORT', 5432))
+        dbname = os.environ.get('DB_NAME', 'postgres')
+        user = os.environ.get('DB_USER', 'postgres')
+        password = os.environ.get('DB_PASSWORD', '')
+        conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
+        paramstyle = '%s'
+        db_path = None
+    else:
+        db_path = os.environ.get('SQLITE_DB_PATH')
+        if not db_path:
+            print("ERROR: SQLITE_DB_PATH environment variable must be set when using SQLite backend.")
+            sys.exit(1)
+        if not os.path.exists(db_path):
+            print(f"ERROR: Database not found at {db_path}")
+            sys.exit(1)
+        conn = sqlite3.connect(db_path)
+        paramstyle = '?'
+    q = (lambda sql: sql.replace('?', '%s')) if paramstyle == '%s' else (lambda sql: sql)
+    return conn, conn.cursor(), paramstyle, q, db_path
+
 
 @app.route('/<int:index>')
 def show_abstract(index):
-    run = app.config['RUN']
     model = app.config['MODEL']
-    db_path = os.path.join('data', run, 'evaluation.db')
-    user = request.cookies.get('user') or request.args.get('user')
-    if not os.path.exists(db_path):
+    conn, _, paramstyle, q, db_path = get_db_connection()
+    assessor = request.cookies.get('assessor') or request.args.get('assessor')
+    if paramstyle == '?' and not os.path.exists(db_path):
         return f'<h2>Database not found at {db_path}</h2>'
-    conn = sqlite3.connect(db_path)
-    # Get abstract metadata
-    metadata = get_abstract_metadata(index, model, conn)
+    # Get abstract metadata (assume helpers are compatible)
+    metadata = get_abstract_metadata(index, model, conn, paramstyle)
     if not metadata:
         conn.close()
         return f'<h2>No recognized entity with index {index} found.</h2>'
@@ -61,11 +63,11 @@ def show_abstract(index):
     original_text = metadata['original_text']
     identifiers = metadata['identifiers']
     highlighted_abstract = metadata['highlighted_abstract']
-    valid_indices = get_valid_indices(model, conn)
+    valid_indices = get_valid_indices(model, conn, paramstyle)
     skip_mode = request.cookies.get('skip_mode') == '1'
-    navigation = get_navigation(index, model, user, skip_mode, conn, pmid)
-    identifier_infos = get_identifier_infos(identifiers, conn) if index in valid_indices and identifiers else []
-    user_assessments = get_user_assessments(index, user, conn) if index in valid_indices and identifiers else {}
+    navigation = get_navigation(index, model, assessor, skip_mode, conn, pmid, paramstyle)
+    identifier_infos = get_identifier_infos(identifiers, conn, paramstyle) if index in valid_indices and identifiers else []
+    assessor_assessments = get_assessor_assessments(index, assessor, conn, paramstyle) if index in valid_indices and identifiers else {}
     # Build abstract navigation URLs from indices
     prev_abstract_url = url_for('show_abstract', index=navigation['prev_abstract_index']) if navigation.get('prev_abstract_index') is not None else None
     next_abstract_url = url_for('show_abstract', index=navigation['next_abstract_index']) if navigation.get('next_abstract_index') is not None else None
@@ -81,7 +83,7 @@ def show_abstract(index):
         next_index=navigation['next_index'],
         current_index=index,
         original_text=original_text,
-        user_assessments=user_assessments,
+        assessor_assessments=assessor_assessments,
         prev_abstract_url=prev_abstract_url,
         next_abstract_url=next_abstract_url,
         random_annotation_url=random_annotation_url,
@@ -90,9 +92,9 @@ def show_abstract(index):
 
 @app.route('/')
 def root():
-    user = request.cookies.get('user') or request.args.get('user')
-    if user:
-        return redirect(url_for('show_abstract', index=0, user=user))
+    assessor = request.cookies.get('assessor') or request.args.get('assessor')
+    if assessor:
+        return redirect(url_for('show_abstract', index=0, assessor=assessor))
     else:
         return redirect(url_for('show_abstract', index=0))
 
@@ -101,17 +103,26 @@ def submit_assessment():
     data = request.get_json()
     idx = data.get('idx')
     identifier = data.get('identifier')
-    user = data.get('user')
+    assessor = data.get('assessor')
     assessment = data.get('assessment')
-    run = app.config['RUN']
-    db_path = os.path.join('data', run, 'evaluation.db')
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute('''INSERT INTO assessment (idx, identifier, user, assessment)
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT(idx, identifier, user) DO UPDATE SET assessment=excluded.assessment''',
-              (idx, identifier, user, assessment))
-    conn.commit()
+    conn, c, paramstyle, q, _ = get_db_connection()
+    try:
+        c.execute(q('''INSERT INTO assessment (idx, identifier, assessor, assessment)
+                         VALUES (?, ?, ?, ?)
+                         ON CONFLICT(idx, identifier, assessor) DO UPDATE SET assessment=excluded.assessment'''),
+                  (idx, identifier, assessor, assessment))
+        conn.commit()
+        # Verification: check if row exists
+        c.execute(q('SELECT assessment FROM assessment WHERE idx = ? AND identifier = ? AND assessor = ?'), (idx, identifier, assessor))
+        result = c.fetchone()
+        if not result:
+            print(f"[ERROR] Assessment not saved: idx={idx}, identifier={identifier}, assessor={assessor}")
+            return jsonify({'status': 'error', 'message': 'Assessment not saved'}), 500
+    except Exception as e:
+        print(f"[ERROR] Exception during assessment insert: {e}")
+        conn.rollback()
+        conn.close()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
     conn.close()
     return jsonify({'status': 'success'})
 
@@ -120,15 +131,12 @@ def delete_assessment():
     data = request.get_json()
     idx = data.get('idx')
     identifier = data.get('identifier')
-    user = data.get('user')
-    run = app.config['RUN']
-    db_path = os.path.join('data', run, 'evaluation.db')
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute('DELETE FROM assessment WHERE idx = ? AND identifier = ? AND user = ?', (idx, identifier, user))
+    assessor = data.get('assessor')
+    conn, c, paramstyle, q, _ = get_db_connection()
+    c.execute(q('DELETE FROM assessment WHERE idx = ? AND identifier = ? AND assessor = ?'), (idx, identifier, assessor))
     conn.commit()
     conn.close()
-    return jsonify({'status': 'deleted'})
+    return jsonify({'status': 'success'})
 
 if __name__ == '__main__':
     app.run(debug=True)
