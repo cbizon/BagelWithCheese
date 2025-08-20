@@ -16,11 +16,10 @@ app = Flask(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', required=True, help='Model name')
+    # Removed --model argument
     return parser.parse_args()
 
 args = get_args()
-app.config['MODEL'] = args.model
 
 def get_db_connection():
     backend = os.environ.get('DB_BACKEND', 'sqlite').lower()
@@ -46,10 +45,38 @@ def get_db_connection():
     q = (lambda sql: sql.replace('?', '%s')) if paramstyle == '%s' else (lambda sql: sql)
     return conn, conn.cursor(), paramstyle, q, db_path
 
+# Determine the model with the most results and set it in app.config['MODEL']
+def get_most_common_model():
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    sql = q("SELECT model, COUNT(*) as cnt FROM results WHERE model != 'medmentions' GROUP BY model ORDER BY cnt DESC LIMIT 1")
+    cursor.execute(sql)
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row[0]
+    else:
+        print("ERROR: No models (other than medmentions) found in results table.")
+        sys.exit(1)
+
+app.config['MODEL'] = get_most_common_model()
+print("[INFO] Using model:", app.config['MODEL'])
+
+def get_all_models():
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+    sql = q("SELECT DISTINCT model FROM results WHERE model != 'medmentions' ORDER BY model ASC")
+    cursor.execute(sql)
+    models = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return models
 
 @app.route('/<int:index>')
 def show_abstract(index):
-    model = app.config['MODEL']
+    models = get_all_models()
+    # Determine selected model: query param, cookie, or default
+    selected_model = request.args.get('model') or request.cookies.get('selected_model')
+    if not selected_model or selected_model not in models:
+        selected_model = app.config['MODEL']
+    model = selected_model
     conn, _, paramstyle, q, db_path = get_db_connection()
     assessor = request.cookies.get('assessor') or request.args.get('assessor')
     if paramstyle == '?' and not os.path.exists(db_path):
@@ -68,13 +95,15 @@ def show_abstract(index):
     navigation = get_navigation(index, model, assessor, skip_mode, conn, pmid, paramstyle)
     identifier_infos = get_identifier_infos(identifiers, conn, paramstyle) if index in valid_indices and identifiers else []
     assessor_assessments = get_assessor_assessments(index, assessor, conn, paramstyle) if index in valid_indices and identifiers else {}
-    # Build abstract navigation URLs from indices
-    prev_abstract_url = url_for('show_abstract', index=navigation['prev_abstract_index']) if navigation.get('prev_abstract_index') is not None else None
-    next_abstract_url = url_for('show_abstract', index=navigation['next_abstract_index']) if navigation.get('next_abstract_index') is not None else None
-    random_annotation_url = url_for('show_abstract', index=navigation['random_annotation_index']) if navigation.get('random_annotation_index') is not None else None
-    random_abstract_url = url_for('show_abstract', index=navigation['random_abstract_index']) if navigation.get('random_abstract_index') is not None else None
+    # Build abstract navigation URLs from indices, preserve model param
+    def url_with_model(url, idx):
+        return url_for(url, index=idx, model=model) if idx is not None else None
+    prev_abstract_url = url_with_model('show_abstract', navigation['prev_abstract_index'])
+    next_abstract_url = url_with_model('show_abstract', navigation['next_abstract_index'])
+    random_annotation_url = url_with_model('show_abstract', navigation['random_annotation_index'])
+    random_abstract_url = url_with_model('show_abstract', navigation['random_abstract_index'])
     conn.close()
-    return render_template(
+    resp = render_template(
         'abstract.html',
         pmid=pmid,
         abstract=highlighted_abstract,
@@ -87,8 +116,15 @@ def show_abstract(index):
         prev_abstract_url=prev_abstract_url,
         next_abstract_url=next_abstract_url,
         random_annotation_url=random_annotation_url,
-        random_abstract_url=random_abstract_url
+        random_abstract_url=random_abstract_url,
+        model_name=model,
+        models=models,
+        selected_model=model
     )
+    # Set cookie for selected model
+    response = app.make_response(resp)
+    response.set_cookie('selected_model', model)
+    return response
 
 @app.route('/')
 def root():

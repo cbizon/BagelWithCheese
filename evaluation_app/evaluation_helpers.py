@@ -80,7 +80,6 @@ def get_assessor_assessments(index, assessor, conn, paramstyle='?'):
     return assessments
 
 def get_next_skip_index(index, model, assessor, conn, paramstyle='?'):
-    print(f"[LOG] get_next_skip_index called with index={index}, model={model}, assessor={assessor}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
@@ -118,11 +117,9 @@ def get_next_skip_index(index, model, assessor, conn, paramstyle='?'):
     c.execute(sql, (model, index, model, model, assessor, model))
     row = c.fetchone()
     result = row[0] if row else None
-    print(f"[LOG] get_next_skip_index returning {result}")
     return result
 
 def get_prev_skip_index(index, model, assessor, conn, paramstyle='?'):
-    print(f"[LOG] get_prev_skip_index called with index={index}, model={model}, assessor={assessor}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
@@ -160,11 +157,9 @@ def get_prev_skip_index(index, model, assessor, conn, paramstyle='?'):
     c.execute(sql, (model, index, model, model, assessor, model))
     row = c.fetchone()
     result = row[0] if row else None
-    print(f"[LOG] get_prev_skip_index returning {result}")
     return result
 
 def get_navigation(index, model, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
-    print(f"[LOG] get_navigation called with index={index}, model={model}, assessor={assessor}, skip_mode={skip_mode}, pmid={pmid}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     prev_index = next_index = None
@@ -174,7 +169,6 @@ def get_navigation(index, model, assessor, skip_mode, conn, pmid=None, paramstyl
     if skip_mode and assessor:
         next_index = get_next_skip_index(index, model, assessor, conn, paramstyle)
         prev_index = get_prev_skip_index(index, model, assessor, conn, paramstyle)
-        print(f"[LOG] get_navigation (skip_mode): next_index={next_index}, prev_index={prev_index}")
         # Abstract navigation (prev/next) in skip mode
         # Get all eligible pmids in order
         sql = q('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE r.model = ? OR r.model = 'medmentions' ORDER BY re.pmid''')
