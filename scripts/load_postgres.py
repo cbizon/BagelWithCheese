@@ -77,8 +77,9 @@ def load_results(conn, tsv_path):
         with open(tsv_path) as f:
             reader = csv.DictReader(f, delimiter='\t')
             for row in reader:
+                identifier = row['identifier'] if row['identifier'] != '' else None
                 c.execute('INSERT INTO results (idx, model, identifier) VALUES (%s, %s, %s) ON CONFLICT (idx, model) DO UPDATE SET identifier=EXCLUDED.identifier',
-                          (row['idx'], row['model'], row['identifier']))
+                          (row['idx'], row['model'], identifier))
                 count += 1
     conn.commit()
     print(f"Loaded {count} rows into results table.")
@@ -118,8 +119,9 @@ def update_results(conn, tsv_path):
             for row in reader:
                 key = (int(row['idx']), row['model'])
                 if key not in existing:
+                    identifier = row['identifier'] if row['identifier'] != '' else None
                     c.execute('INSERT INTO results (idx, model, identifier) VALUES (%s, %s, %s)',
-                              (row['idx'], row['model'], row['identifier']))
+                              (row['idx'], row['model'], identifier))
                     new_rows += 1
     conn.commit()
     print(f"Inserted {new_rows} new rows into results table.")

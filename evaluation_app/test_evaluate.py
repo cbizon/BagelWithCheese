@@ -365,3 +365,76 @@ def test_get_prev_skip_index_skips_if_same_as_medmentions():
     # Should return 1, skipping 2 (since 2's identifiers match)
     assert get_prev_skip_index(3, 'testmodel', 'user1', conn) == 1
     conn.close()
+
+def test_get_next_skip_index_null_model_result():
+    conn = setup_in_memory_db()
+    # Insert recognized entities
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (8, 'PMID8', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (9, 'PMID9', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (10, 'PMID10', 'text', 'orig')")
+    # Insert results
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (8, 'medmentions', 'UMLS:C0443252')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'medmentions', 'MONDO:0005275')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (10, 'medmentions', 'UMLS:C0220921')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (10, 'gpt-oss', 'UMLS:C0220922')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'gpt-oss', NULL)")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'o3-mini-2025-01-31', 'UMLS:C2359474')")
+    # Insert assessment
+    conn.execute("INSERT INTO assessment (idx, identifier, assessor, assessment) VALUES (9, 'MONDO:0005275', 'cb', 'agree')")
+    conn.commit()
+    from evaluation_helpers import get_next_skip_index
+    # Should return 9 if NULL is not considered agreement, else None
+    result = get_next_skip_index(8, 'gpt-oss', 'cb', conn)
+    assert result == 10
+    conn.close()
+
+def test_get_prev_skip_index_null_model_result():
+    conn = setup_in_memory_db()
+    # Insert recognized entities
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (8, 'PMID8', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (9, 'PMID9', 'text', 'orig')")
+    conn.execute("INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES (10, 'PMID10', 'text', 'orig')")
+    # Insert results
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (8, 'gpt-oss', NULL)")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (8, 'medmentions', 'UMLS:C0443252')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'medmentions', 'MONDO:0005275')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (10, 'medmentions', 'UMLS:C0220921')")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'gpt-oss', NULL)")
+    conn.execute("INSERT INTO results (idx, model, identifier) VALUES (9, 'o3-mini-2025-01-31', 'UMLS:C2359474')")
+    # Insert assessment
+    conn.execute("INSERT INTO assessment (idx, identifier, assessor, assessment) VALUES (9, 'MONDO:0005275', 'cb', 'agree')")
+    conn.commit()
+    from evaluation_helpers import get_prev_skip_index
+    # Should return 9 if NULL is not considered agreement, else None
+    result = get_prev_skip_index(10, 'gpt-oss', 'cb', conn)
+    assert result == 8
+    conn.close()
+
+def test_get_prev_skip_index_complex_realistic():
+    conn = setup_in_memory_db()
+    # Insert recognized entities
+    for i in range(11):
+        conn.execute(f"INSERT INTO recognized_entities (id, pmid, expanded_text, original_text) VALUES ({i}, 'PMID{i}', 'text', 'orig')")
+    # Insert results
+    results = [
+        (0, 'gpt-oss', 'NCBIGene:51164'), (0, 'medmentions', 'NCBIGene:51164'), (0, 'o3-mini-2025-01-31', 'NCBIGene:51164'),
+        (1, 'gpt-oss', 'NCBIGene:51164'), (1, 'medmentions', 'NCBIGene:51164'), (1, 'o3-mini-2025-01-31', 'NCBIGene:51164'),
+        (2, 'gpt-oss', 'UMLS:C5208136'), (2, 'medmentions', 'UMLS:C0854135'), (2, 'o3-mini-2025-01-31', 'UMLS:C5208136'),
+        (3, 'gpt-oss', 'UMLS:C5208136'), (3, 'medmentions', 'UMLS:C0854135'), (3, 'o3-mini-2025-01-31', 'UMLS:C5208136'),
+        (4, 'gpt-oss', 'MONDO:0009061'), (4, 'medmentions', 'MONDO:0009061'), (4, 'o3-mini-2025-01-31', 'MONDO:0009061'),
+        (5, 'gpt-oss', 'MONDO:0009061'), (5, 'medmentions', 'MONDO:0009061'), (5, 'o3-mini-2025-01-31', 'MONDO:0009061'),
+        (6, 'gpt-oss', 'UMLS:C0854135'), (6, 'medmentions', 'UMLS:C0854135'), (6, 'o3-mini-2025-01-31', 'UMLS:C0854135'),
+        (7, 'gpt-oss', 'UMLS:C0030705'), (7, 'medmentions', 'UMLS:C0030705'), (7, 'o3-mini-2025-01-31', 'UMLS:C0030705'),
+        (8, 'medmentions', 'UMLS:C0443252'),
+        (9, 'gpt-oss', None), (9, 'medmentions', 'MONDO:0005275'), (9, 'o3-mini-2025-01-31', 'UMLS:C2359474'),
+        (10, 'medmentions', 'UMLS:C0220921'),
+    ]
+    for idx, model, identifier in results:
+        conn.execute("INSERT INTO results (idx, model, identifier) VALUES (?, ?, ?)", (idx, model, identifier))
+    # Insert assessment
+    conn.execute("INSERT INTO assessment (idx, identifier, assessor, assessment) VALUES (9, 'MONDO:0005275', 'cb', 'agree')")
+    conn.commit()
+    from evaluation_helpers import get_prev_skip_index
+    result = get_prev_skip_index(10, 'gpt-oss', 'cb', conn)
+    assert result == 3
+    conn.close()

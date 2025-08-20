@@ -64,8 +64,9 @@ def load_results(db_path, tsv_path):
     with open(tsv_path) as f:
         reader = csv.DictReader(f, delimiter='\t')
         for row in reader:
+            identifier = row['identifier'] if row['identifier'] != '' else None
             c.execute('INSERT OR REPLACE INTO results (idx, model, identifier) VALUES (?, ?, ?)',
-                      (row['idx'], row['model'], row['identifier']))
+                      (row['idx'], row['model'], identifier))
     conn.commit()
     conn.close()
 

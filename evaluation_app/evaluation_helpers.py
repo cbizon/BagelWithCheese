@@ -80,64 +80,91 @@ def get_assessor_assessments(index, assessor, conn, paramstyle='?'):
     return assessments
 
 def get_next_skip_index(index, model, assessor, conn, paramstyle='?'):
+    print(f"[LOG] get_next_skip_index called with index={index}, model={model}, assessor={assessor}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
-        SELECT re.id FROM recognized_entities re
-        JOIN results r ON re.id = r.idx
+        SELECT re.id
+        FROM recognized_entities re
+        LEFT JOIN results r_med ON r_med.idx = re.id AND r_med.model = 'medmentions'
+        LEFT JOIN results r_model ON r_model.idx = re.id AND r_model.model = ?
         WHERE re.id > ?
-        GROUP BY re.id
-        HAVING SUM(CASE WHEN r.model = ? THEN 1 ELSE 0 END) > 0
-           AND SUM(CASE WHEN r.model = 'medmentions' THEN 1 ELSE 0 END) > 0
-           AND (
-                SELECT r1.identifier FROM results r1 WHERE r1.idx = re.id AND r1.model = ?
-            ) <> (
-                SELECT r2.identifier FROM results r2 WHERE r2.idx = re.id AND r2.model = 'medmentions'
-            )
-           AND COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
-                SELECT COUNT(DISTINCT a.identifier)
-                FROM assessment a
-                WHERE a.idx = re.id AND a.assessor = ?
-                  AND a.identifier IN (
-                    SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions')
-                  )
-            )
-        ORDER BY re.id ASC LIMIT 1
+        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model = ?)
+        AND (
+            (r_model.identifier IS NOT NULL)
+            OR
+            (r_med.identifier IS NOT NULL)
+        )
+        AND NOT (
+            r_model.identifier IS NOT NULL
+            AND r_med.identifier IS NOT NULL
+            AND r_model.identifier = r_med.identifier
+        )
+        AND (
+            SELECT COUNT(DISTINCT res.identifier)
+            FROM results res
+            WHERE res.idx = re.id AND res.model IN (?, 'medmentions') AND res.identifier IS NOT NULL
+        ) > (
+            SELECT COUNT(DISTINCT a.identifier)
+            FROM assessment a
+            WHERE a.idx = re.id AND a.assessor = ?
+              AND a.identifier IN (
+                SELECT identifier FROM results res2 WHERE res2.idx = re.id AND res2.model IN (?, 'medmentions') AND res2.identifier IS NOT NULL
+              )
+        )
+        ORDER BY re.id ASC
+        LIMIT 1
     ''')
-    c.execute(sql, (index, model, model, model, assessor, model))
+    c.execute(sql, (model, index, model, model, assessor, model))
     row = c.fetchone()
-    return row[0] if row else None
+    result = row[0] if row else None
+    print(f"[LOG] get_next_skip_index returning {result}")
+    return result
 
 def get_prev_skip_index(index, model, assessor, conn, paramstyle='?'):
+    print(f"[LOG] get_prev_skip_index called with index={index}, model={model}, assessor={assessor}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
-        SELECT re.id FROM recognized_entities re
-        JOIN results r ON re.id = r.idx
+        SELECT re.id
+        FROM recognized_entities re
+        LEFT JOIN results r_med ON r_med.idx = re.id AND r_med.model = 'medmentions'
+        LEFT JOIN results r_model ON r_model.idx = re.id AND r_model.model = ?
         WHERE re.id < ?
-        GROUP BY re.id
-        HAVING SUM(CASE WHEN r.model = ? THEN 1 ELSE 0 END) > 0
-           AND SUM(CASE WHEN r.model = 'medmentions' THEN 1 ELSE 0 END) > 0
-           AND (
-                SELECT r1.identifier FROM results r1 WHERE r1.idx = re.id AND r1.model = ?
-            ) <> (
-                SELECT r2.identifier FROM results r2 WHERE r2.idx = re.id AND r2.model = 'medmentions'
-            )
-           AND COUNT(DISTINCT CASE WHEN r.model = ? OR r.model = 'medmentions' THEN r.identifier END) > (
-                SELECT COUNT(DISTINCT a.identifier)
-                FROM assessment a
-                WHERE a.idx = re.id AND a.assessor = ?
-                  AND a.identifier IN (
-                    SELECT identifier FROM results r2 WHERE r2.idx = re.id AND (r2.model = ? OR r2.model = 'medmentions')
-                  )
-            )
-        ORDER BY re.id DESC LIMIT 1
+        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model = ?)
+        AND (
+            (r_model.identifier IS NOT NULL)
+            OR
+            (r_med.identifier IS NOT NULL)
+        )
+        AND NOT (
+            r_model.identifier IS NOT NULL
+            AND r_med.identifier IS NOT NULL
+            AND r_model.identifier = r_med.identifier
+        )
+        AND (
+            SELECT COUNT(DISTINCT res.identifier)
+            FROM results res
+            WHERE res.idx = re.id AND res.model IN (?, 'medmentions') AND res.identifier IS NOT NULL
+        ) > (
+            SELECT COUNT(DISTINCT a.identifier)
+            FROM assessment a
+            WHERE a.idx = re.id AND a.assessor = ?
+              AND a.identifier IN (
+                SELECT identifier FROM results res2 WHERE res2.idx = re.id AND res2.model IN (?, 'medmentions') AND res2.identifier IS NOT NULL
+              )
+        )
+        ORDER BY re.id DESC
+        LIMIT 1
     ''')
-    c.execute(sql, (index, model, model, model, assessor, model))
+    c.execute(sql, (model, index, model, model, assessor, model))
     row = c.fetchone()
-    return row[0] if row else None
+    result = row[0] if row else None
+    print(f"[LOG] get_prev_skip_index returning {result}")
+    return result
 
 def get_navigation(index, model, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
+    print(f"[LOG] get_navigation called with index={index}, model={model}, assessor={assessor}, skip_mode={skip_mode}, pmid={pmid}, paramstyle={paramstyle}")
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     prev_index = next_index = None
@@ -146,8 +173,8 @@ def get_navigation(index, model, assessor, skip_mode, conn, pmid=None, paramstyl
     random_annotation_index = random_abstract_index = None
     if skip_mode and assessor:
         next_index = get_next_skip_index(index, model, assessor, conn, paramstyle)
-        print(f"Next index in skip mode: {next_index}")
         prev_index = get_prev_skip_index(index, model, assessor, conn, paramstyle)
+        print(f"[LOG] get_navigation (skip_mode): next_index={next_index}, prev_index={prev_index}")
         # Abstract navigation (prev/next) in skip mode
         # Get all eligible pmids in order
         sql = q('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx WHERE r.model = ? OR r.model = 'medmentions' ORDER BY re.pmid''')
