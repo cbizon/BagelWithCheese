@@ -181,13 +181,27 @@
         .pmid-link:hover {
             text-decoration: underline;
         }
+        .model-name {
+            color: #222;
+            font-size: 1em;
+            font-weight: normal;
+            margin-left: 18px;
+        }
     </style>
 </head>
 <body>
-    <div class="user-greeting" id="user-greeting" style="display:none;">
-        <span id="user-greeting-text"></span>
-        <a class="user-greeting-link" id="forget-me-link" style="display:none;">log out</a>
+    <div class="user-greeting" id="assessor-greeting" style="display:none;">
+        <span id="assessor-greeting-text"></span>
+        <span id="model-select-container" style="margin-left: 18px;">
+            <label for="model-select" class="model-name" style="margin-right: 6px; color: #222; font-weight: normal; font-size: 1em;">Model:</label>
+            <select id="model-select" class="model-name" style="font-size: 1em; color: #222;">
+                {% for m in models %}
+                    <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+            </select>
+        </span>
         <a class="user-greeting-link" id="skip-mode-link" style="display:none; cursor:pointer;">Enter skip mode</a>
+        <a class="user-greeting-link" id="forget-me-link" style="display:none;">log out</a>
     </div>
     <div class="container">
         <h1><a href="https://pubmed.ncbi.nlm.nih.gov/{{ pmid }}/" target="_blank" rel="noopener" class="pmid-link">{{ pmid }}</a></h1>
@@ -290,8 +304,8 @@
         console.error('[GlobalError]', message, 'at', source + ':' + lineno + ':' + colno, error);
     }
 
-    // Expose user assessments as a JS variable
-    var userAssessments = {{ user_assessments|tojson|default('null', true)|safe }};
+    // Expose assessor assessments as a JS variable
+    var assessorAssessments = {{ assessor_assessments|tojson|default('null', true)|safe }};
 
     // Cookie helpers
     function setCookie(name, value, days) {
@@ -318,8 +332,8 @@
     }
 
     function updateGreeting(name) {
-        const greeting = document.getElementById('user-greeting');
-        const greetingText = document.getElementById('user-greeting-text');
+        const greeting = document.getElementById('assessor-greeting');
+        const greetingText = document.getElementById('assessor-greeting-text');
         const forgetLink = document.getElementById('forget-me-link');
         const skipModeLink = document.getElementById('skip-mode-link');
         console.log('[updateGreeting] called with name:', name);
@@ -338,11 +352,11 @@
             const loginLink = document.getElementById('login-link');
             if (loginLink) {
                 loginLink.onclick = function() {
-                    let userName = prompt('Please enter your name (for internal use only):');
-                    if (userName && userName.trim()) {
-                        userName = userName.trim();
-                        localStorage.setItem('userName', userName);
-                        setCookie('user', userName, 365);
+                    let assessorName = prompt('Please enter your name (for internal use only):');
+                    if (assessorName && assessorName.trim()) {
+                        assessorName = assessorName.trim();
+                        localStorage.setItem('assessorName', assessorName);
+                        setCookie('assessor', assessorName, 365);
                         // Set skip mode OFF on login
                         localStorage.setItem('skipMode', 'off');
                         setCookie('skip_mode', '0', 365);
@@ -357,9 +371,9 @@
     }
 
     function updateAssessmentButtonsVisibility() {
-        let userName = localStorage.getItem('userName');
+        let assessorName = localStorage.getItem('assessorName');
         document.querySelectorAll('.identifier-box-buttons').forEach(function(btnGroup) {
-            btnGroup.style.display = userName ? '' : 'none';
+            btnGroup.style.display = assessorName ? '' : 'none';
         });
     }
 
@@ -390,23 +404,23 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         // Sync localStorage and cookie for user
-        let userName = localStorage.getItem('userName');
-        let cookieUser = getCookie('user');
-        if (userName && !cookieUser) {
-            setCookie('user', userName, 365);
-        } else if (!userName && cookieUser) {
-            localStorage.setItem('userName', cookieUser);
-            userName = cookieUser;
+        let assessorName = localStorage.getItem('assessorName');
+        let cookieUser = getCookie('assessor');
+        if (assessorName && !cookieUser) {
+            setCookie('assessor', assessorName, 365);
+        } else if (!assessorName && cookieUser) {
+            localStorage.setItem('assessorName', cookieUser);
+            assessorName = cookieUser;
         }
-        updateGreeting(userName);
+        updateGreeting(assessorName);
 
         // Also update assessment buttons visibility on load
         updateAssessmentButtonsVisibility();
 
         // Remove user from cookie and localStorage on forget
         document.getElementById('forget-me-link').addEventListener('click', function() {
-            localStorage.removeItem('userName');
-            eraseCookie('user');
+            localStorage.removeItem('assessorName');
+            eraseCookie('assessor');
             updateGreeting(null);
             updateAssessmentButtonsVisibility();
             window.location.reload();
@@ -429,11 +443,11 @@
 
         // Color identifier boxes based on user assessments
         // Debug: Log userAssessments and userName
-        console.log('[Assessments Debug] userAssessments:', userAssessments, 'userName:', userName);
-        if (userName && userAssessments) {
+        console.log('[Assessments Debug] userAssessments:', assessorAssessments, 'userName:', assessorName);
+        if (assessorName && assessorAssessments) {
             document.querySelectorAll('.identifier-box').forEach(function(box) {
                 const identifier = box.getAttribute('data-identifier');
-                const assessment = userAssessments[identifier];
+                const assessment = assessorAssessments[identifier];
                 console.log('[Assessments Debug] identifier:', identifier, 'assessment:', assessment);
                 if (assessment === 'agree') {
                     box.classList.add('agree');
@@ -460,23 +474,13 @@
         btnGroup.addEventListener('click', function(e) {
             if (e.target.tagName !== 'BUTTON') return;
             // If no user name, prompt for it
-            let userName = localStorage.getItem('userName');
-            if (!userName) {
-                userName = prompt('Please enter your name (for internal use only):');
-                if (userName && userName.trim()) {
-                    userName = userName.trim();
-                    localStorage.setItem('userName', userName);
-                    setCookie('user', userName, 365);
-                    // Set skip mode OFF on login
-                    localStorage.setItem('skipMode', 'off');
-                    setCookie('skip_mode', '0', 365);
-                    // Reload page to fetch correct assessments and state
-                    window.location.reload();
-                    return;
-                } else {
-                    // Don't proceed if no name entered
-                    return;
-                }
+            let assessorName = localStorage.getItem('assessorName');
+            if (!assessorName) {
+                assessorName = getCookie('assessor');
+            }
+            if (!assessorName) {
+                alert('You must identify yourself before submitting assessments.');
+                return;
             }
             const box = btnGroup.closest('.identifier-box');
             // Remove all state classes
@@ -495,7 +499,7 @@
                     body: JSON.stringify({
                         idx: currentIdx,
                         identifier: box.getAttribute('data-identifier'),
-                        user: userName,
+                        assessor: assessorName,
                         assessment: assessment
                     })
                 });
@@ -509,7 +513,7 @@
                     body: JSON.stringify({
                         idx: currentIdx,
                         identifier: box.getAttribute('data-identifier'),
-                        user: userName,
+                        assessor: assessorName,
                         assessment: assessment
                     })
                 });
@@ -523,7 +527,7 @@
                     body: JSON.stringify({
                         idx: currentIdx,
                         identifier: box.getAttribute('data-identifier'),
-                        user: userName,
+                        assessor: assessorName,
                         assessment: assessment
                     })
                 });
@@ -535,13 +539,24 @@
                     body: JSON.stringify({
                         idx: currentIdx,
                         identifier: box.getAttribute('data-identifier'),
-                        user: userName
+                        assessor: assessorName
                     })
                 });
             }
         });
     });
-});
+
+        // Model dropdown logic
+        var modelSelect = document.getElementById('model-select');
+        if (modelSelect) {
+            modelSelect.addEventListener('change', function() {
+                var newModel = modelSelect.value;
+                var url = new URL(window.location.href);
+                url.searchParams.set('model', newModel);
+                window.location.href = url.toString();
+            });
+        }
+    });
     </script>
 </body>
 </html>
