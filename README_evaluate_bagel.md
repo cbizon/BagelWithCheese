@@ -60,9 +60,9 @@ Set the environment variable `SQLITE_DB_PATH` to the path of your SQLite databas
 
 ```
 export SQLITE_DB_PATH=/full/path/to/data/RUN_NAME/evaluation.db
-python evaluation_app/evaluate.py --model MODEL_NAME
+python evaluation_app/evaluate.py
 ```
-- Replace `MODEL_NAME` with the model you want to view in the browser.
+The app will automatically select the model with the most results. You can switch between models using the web interface.
 
 ### For PostgreSQL
 
@@ -75,10 +75,10 @@ export DB_PORT=5432
 export DB_NAME=your_db
 export DB_USER=your_user
 export DB_PASSWORD=your_password
-python evaluation_app/evaluate.py --model MODEL_NAME
+python evaluation_app/evaluate.py
 ```
 - Replace the values with your PostgreSQL credentials and database name.
-- Replace `MODEL_NAME` with the model you want to view in the browser.
+The app will automatically select the model with the most results. You can switch between models using the web interface.
 
 ### Accessing the App
 
