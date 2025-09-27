@@ -150,8 +150,7 @@ The `analyze.py` script aggregates and summarizes the evaluation results by mode
 
 **Arguments:**
 
-- `--run RUN_NAME` (optional): Name of the run directory under `data/` (default: `run_1`).
-- `--input FILE` (optional): Path to the evaluation summary JSONL file (default: `data/RUN_NAME/evaluation_summary_all.jsonl`).
+- `--run RUN_NAME` (required): Name of the run directory under `data/`.
 
 **Example usage:**
 
@@ -215,12 +214,12 @@ python results_browser_app/browse_results.py --run run_1
 python scripts/get_abbreviations.py
 python scripts/make_prompts.py --run run_1 --threshold 10
 python scripts/run_ollama.py --run run_1 --thresholds 10
-python scripts/convert_to_openai_batch.py 10 --limit 50
-python scripts/run_openai.py data/run_1/open_ai_batches_10
-python scripts/evaluate_outputs.py
+python scripts/convert_to_openai_batch.py --threshold 10 --run run_1 --limit 50
+python scripts/run_openai.py --run run_1
+python scripts/evaluate_outputs.py --run run_1
 python scripts/build_db.py --run run_1
-python scripts/analyze.py --input data/run_1/evaluation_summary_all.jsonl
-python scripts/visualize_analysis.py --input data/run_1/evaluation_summary_all_aggregated.tsv
+python scripts/analyze.py --run run_1
+python scripts/visualize_analysis.py --run run_1
 python results_browser_app/browse_results.py --run run_1
 ```
 
