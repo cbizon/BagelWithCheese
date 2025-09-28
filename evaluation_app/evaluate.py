@@ -71,42 +71,44 @@ def get_all_models():
 
 @app.route('/<int:index>')
 def show_abstract(index):
-    models = get_all_models()
-    # Determine selected model: query param, cookie, or default
-    selected_model = request.args.get('model') or request.cookies.get('selected_model')
-    if not selected_model or selected_model not in models:
-        selected_model = app.config['MODEL']
-    model = selected_model
     conn, _, paramstyle, q, db_path = get_db_connection()
     assessor = request.cookies.get('assessor') or request.args.get('assessor')
     if paramstyle == '?' and not os.path.exists(db_path):
         return f'<h2>Database not found at {db_path}</h2>'
-    # Get abstract metadata (assume helpers are compatible)
-    metadata = get_abstract_metadata(index, model, conn, paramstyle)
+    # Get abstract metadata (now multi-model)
+    metadata = get_abstract_metadata(index, conn, paramstyle)
     if not metadata:
         conn.close()
         return f'<h2>No recognized entity with index {index} found.</h2>'
     pmid = metadata['pmid']
     original_text = metadata['original_text']
-    identifiers = metadata['identifiers']
+    model_results = metadata['model_results']
     highlighted_abstract = metadata['highlighted_abstract']
-    valid_indices = get_valid_indices(model, conn, paramstyle)
+    valid_indices = get_valid_indices(conn, paramstyle)
     skip_mode = request.cookies.get('skip_mode') == '1'
-    navigation = get_navigation(index, model, assessor, skip_mode, conn, pmid, paramstyle)
-    identifier_infos = get_identifier_infos(identifiers, conn, paramstyle) if index in valid_indices and identifiers else []
-    assessor_assessments = get_assessor_assessments(index, assessor, conn, paramstyle) if index in valid_indices and identifiers else {}
-    # Build abstract navigation URLs from indices, preserve model param
-    def url_with_model(url, idx):
-        return url_for(url, index=idx, model=model) if idx is not None else None
-    prev_abstract_url = url_with_model('show_abstract', navigation['prev_abstract_index'])
-    next_abstract_url = url_with_model('show_abstract', navigation['next_abstract_index'])
-    random_annotation_url = url_with_model('show_abstract', navigation['random_annotation_index'])
-    random_abstract_url = url_with_model('show_abstract', navigation['random_abstract_index'])
+    navigation = get_navigation(index, assessor, skip_mode, conn, pmid, paramstyle)
+    
+    # Get all unique identifiers across all models for assessment
+    all_identifiers = []
+    for model_name, identifiers in model_results.items():
+        all_identifiers.extend(identifiers)
+    unique_identifiers = list(set(all_identifiers))
+    
+    identifier_infos = get_identifier_infos(unique_identifiers, conn, paramstyle) if index in valid_indices and unique_identifiers else []
+    assessor_assessments = get_assessor_assessments(index, assessor, conn, paramstyle) if index in valid_indices and unique_identifiers else {}
+    # Build abstract navigation URLs from indices (no model-specific URLs needed)
+    def url_for_index(route, idx):
+        return url_for(route, index=idx) if idx is not None else None
+    prev_abstract_url = url_for_index('show_abstract', navigation['prev_abstract_index'])
+    next_abstract_url = url_for_index('show_abstract', navigation['next_abstract_index'])
+    random_annotation_url = url_for_index('show_abstract', navigation['random_annotation_index'])
+    random_abstract_url = url_for_index('show_abstract', navigation['random_abstract_index'])
     conn.close()
-    resp = render_template(
+    return render_template(
         'abstract.html',
         pmid=pmid,
         abstract=highlighted_abstract,
+        model_results=model_results,
         identifier_infos=identifier_infos,
         prev_index=navigation['prev_index'],
         next_index=navigation['next_index'],
@@ -116,15 +118,8 @@ def show_abstract(index):
         prev_abstract_url=prev_abstract_url,
         next_abstract_url=next_abstract_url,
         random_annotation_url=random_annotation_url,
-        random_abstract_url=random_abstract_url,
-        model_name=model,
-        models=models,
-        selected_model=model
+        random_abstract_url=random_abstract_url
     )
-    # Set cookie for selected model
-    response = app.make_response(resp)
-    response.set_cookie('selected_model', model)
-    return response
 
 @app.route('/')
 def root():
