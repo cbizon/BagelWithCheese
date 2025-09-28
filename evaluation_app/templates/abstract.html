@@ -192,14 +192,6 @@
 <body>
     <div class="user-greeting" id="assessor-greeting" style="display:none;">
         <span id="assessor-greeting-text"></span>
-        <span id="model-select-container" style="margin-left: 18px;">
-            <label for="model-select" class="model-name" style="margin-right: 6px; color: #222; font-weight: normal; font-size: 1em;">Model:</label>
-            <select id="model-select" class="model-name" style="font-size: 1em; color: #222;">
-                {% for m in models %}
-                    <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m }}</option>
-                {% endfor %}
-            </select>
-        </span>
         <a class="user-greeting-link" id="skip-mode-link" style="display:none; cursor:pointer;">Enter skip mode</a>
         <a class="user-greeting-link" id="forget-me-link" style="display:none;">log out</a>
     </div>
@@ -546,16 +538,6 @@
         });
     });
 
-        // Model dropdown logic
-        var modelSelect = document.getElementById('model-select');
-        if (modelSelect) {
-            modelSelect.addEventListener('change', function() {
-                var newModel = modelSelect.value;
-                var url = new URL(window.location.href);
-                url.searchParams.set('model', newModel);
-                window.location.href = url.toString();
-            });
-        }
     });
     </script>
 </body>
