@@ -74,74 +74,114 @@ def get_assessor_assessments(index, assessor, conn, paramstyle='?'):
 def get_next_skip_index(index, assessor, conn, paramstyle='?'):
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
-    sql = q('''
-        SELECT re.id
-        FROM recognized_entities re
-        WHERE re.id > ?
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id)
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != 'medmentions')
-        AND NOT (
-            -- Skip if all models agree (same non-NULL identifier and no NULLs)
-            (SELECT COUNT(DISTINCT r.identifier) FROM results r WHERE r.idx = re.id AND r.identifier IS NOT NULL) = 1
-            AND NOT EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.identifier IS NULL)
-            AND (SELECT COUNT(*) FROM results r WHERE r.idx = re.id) > 1
-        )
-        AND (
-            SELECT COUNT(DISTINCT res.identifier)
-            FROM results res
-            WHERE res.idx = re.id AND res.identifier IS NOT NULL
-        ) > (
-            SELECT COUNT(DISTINCT a.identifier)
-            FROM assessment a
-            WHERE a.idx = re.id AND a.assessor = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results res2 
-                WHERE res2.idx = re.id AND res2.identifier IS NOT NULL
-              )
-        )
-        ORDER BY re.id ASC
-        LIMIT 1
-    ''')
-    c.execute(sql, (index, assessor))
-    row = c.fetchone()
-    result = row[0] if row else None
-    return result
+    # Get candidate indices in batches and check eligibility
+    batch_size = 100
+    current_idx = index
+
+    while True:
+        sql = q('''
+            SELECT DISTINCT r.idx
+            FROM results r
+            WHERE r.idx > ?
+              AND r.model != 'medmentions'
+            ORDER BY r.idx ASC
+            LIMIT ?
+        ''')
+        c.execute(sql, (current_idx, batch_size))
+        candidates = [row[0] for row in c.fetchall()]
+
+        if not candidates:
+            return None
+
+        # Check each candidate for eligibility
+        for candidate in candidates:
+            # Get stats for this candidate
+            sql_stats = q('''
+                SELECT
+                    COUNT(DISTINCT CASE WHEN r.identifier IS NOT NULL THEN r.identifier END) as distinct_identifiers,
+                    COUNT(CASE WHEN r.identifier IS NULL THEN 1 END) as null_count,
+                    COUNT(*) as total_models
+                FROM results r
+                WHERE r.idx = ?
+            ''')
+            c.execute(sql_stats, (candidate,))
+            stats = c.fetchone()
+            distinct_identifiers, null_count, total_models = stats
+
+            # Skip if all models agree
+            if distinct_identifiers == 1 and null_count == 0 and total_models > 1:
+                continue
+
+            # Check if assessment is incomplete
+            sql_assessed = q('''
+                SELECT COUNT(DISTINCT a.identifier)
+                FROM assessment a
+                WHERE a.idx = ? AND a.assessor = ?
+            ''')
+            c.execute(sql_assessed, (candidate, assessor))
+            assessed_count = c.fetchone()[0]
+
+            if distinct_identifiers > assessed_count:
+                return candidate
+
+        # Move to next batch
+        current_idx = candidates[-1]
 
 def get_prev_skip_index(index, assessor, conn, paramstyle='?'):
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
-    sql = q('''
-        SELECT re.id
-        FROM recognized_entities re
-        WHERE re.id < ?
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id)
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != 'medmentions')
-        AND NOT (
-            -- Skip if all models agree (same non-NULL identifier and no NULLs)
-            (SELECT COUNT(DISTINCT r.identifier) FROM results r WHERE r.idx = re.id AND r.identifier IS NOT NULL) = 1
-            AND NOT EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.identifier IS NULL)
-            AND (SELECT COUNT(*) FROM results r WHERE r.idx = re.id) > 1
-        )
-        AND (
-            SELECT COUNT(DISTINCT res.identifier)
-            FROM results res
-            WHERE res.idx = re.id AND res.identifier IS NOT NULL
-        ) > (
-            SELECT COUNT(DISTINCT a.identifier)
-            FROM assessment a
-            WHERE a.idx = re.id AND a.assessor = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results res2 
-                WHERE res2.idx = re.id AND res2.identifier IS NOT NULL
-              )
-        )
-        ORDER BY re.id DESC
-        LIMIT 1
-    ''')
-    c.execute(sql, (index, assessor))
-    row = c.fetchone()
-    result = row[0] if row else None
-    return result
+    # Get candidate indices in batches and check eligibility
+    batch_size = 100
+    current_idx = index
+
+    while True:
+        sql = q('''
+            SELECT DISTINCT r.idx
+            FROM results r
+            WHERE r.idx < ?
+              AND r.model != 'medmentions'
+            ORDER BY r.idx DESC
+            LIMIT ?
+        ''')
+        c.execute(sql, (current_idx, batch_size))
+        candidates = [row[0] for row in c.fetchall()]
+
+        if not candidates:
+            return None
+
+        # Check each candidate for eligibility
+        for candidate in candidates:
+            # Get stats for this candidate
+            sql_stats = q('''
+                SELECT
+                    COUNT(DISTINCT CASE WHEN r.identifier IS NOT NULL THEN r.identifier END) as distinct_identifiers,
+                    COUNT(CASE WHEN r.identifier IS NULL THEN 1 END) as null_count,
+                    COUNT(*) as total_models
+                FROM results r
+                WHERE r.idx = ?
+            ''')
+            c.execute(sql_stats, (candidate,))
+            stats = c.fetchone()
+            distinct_identifiers, null_count, total_models = stats
+
+            # Skip if all models agree
+            if distinct_identifiers == 1 and null_count == 0 and total_models > 1:
+                continue
+
+            # Check if assessment is incomplete
+            sql_assessed = q('''
+                SELECT COUNT(DISTINCT a.identifier)
+                FROM assessment a
+                WHERE a.idx = ? AND a.assessor = ?
+            ''')
+            c.execute(sql_assessed, (candidate, assessor))
+            assessed_count = c.fetchone()[0]
+
+            if distinct_identifiers > assessed_count:
+                return candidate
+
+        # Move to next batch
+        current_idx = candidates[-1]
 
 def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
     c = conn.cursor()
@@ -154,8 +194,8 @@ def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
         next_index = get_next_skip_index(index, assessor, conn, paramstyle)
         prev_index = get_prev_skip_index(index, assessor, conn, paramstyle)
         # Abstract navigation (prev/next) in skip mode
-        # Get all pmids that have any model results
-        sql = q('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx ORDER BY re.pmid''')
+        # Get pmids efficiently using subquery
+        sql = q('''SELECT DISTINCT pmid FROM recognized_entities WHERE id IN (SELECT DISTINCT idx FROM results) ORDER BY pmid''')
         c.execute(sql)
         pmid_rows = c.fetchall()
         pmid_list = [row[0] for row in pmid_rows]
@@ -163,31 +203,24 @@ def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
         # Previous abstract
         prev_abstract_index = None
         if pmid_pos is not None and pmid_pos > 0:
-            for p in range(pmid_pos - 1, -1, -1):
-                prev_pmid = pmid_list[p]
-                # Find first eligible annotation in this abstract
-                prev_idx = get_prev_skip_index(999999, assessor, conn, paramstyle)  # Get any eligible before a high number
-                if prev_idx is not None:
-                    sql = q('SELECT pmid FROM recognized_entities WHERE id = ?')
-                    c.execute(sql, (prev_idx,))
-                    pmid_row = c.fetchone()
-                    if pmid_row and pmid_row[0] == prev_pmid:
-                        prev_abstract_index = prev_idx
-                        break
-        # Next abstract  
+            # Just get the first annotation from the previous abstract's PMID
+            prev_pmid = pmid_list[pmid_pos - 1]
+            sql = q('SELECT MIN(re.id) FROM recognized_entities re WHERE re.pmid = ? AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != \'medmentions\')')
+            c.execute(sql, (prev_pmid,))
+            row = c.fetchone()
+            if row and row[0]:
+                prev_abstract_index = row[0]
+
+        # Next abstract
         next_abstract_index = None
         if pmid_pos is not None and pmid_pos < len(pmid_list) - 1:
-            for p in range(pmid_pos + 1, len(pmid_list)):
-                next_pmid = pmid_list[p]
-                # Find first eligible annotation in this abstract
-                next_idx = get_next_skip_index(0, assessor, conn, paramstyle)  # Get any eligible after 0
-                if next_idx is not None:
-                    sql = q('SELECT pmid FROM recognized_entities WHERE id = ?')
-                    c.execute(sql, (next_idx,))
-                    pmid_row = c.fetchone()
-                    if pmid_row and pmid_row[0] == next_pmid:
-                        next_abstract_index = next_idx
-                        break
+            # Just get the first annotation from the next abstract's PMID
+            next_pmid = pmid_list[pmid_pos + 1]
+            sql = q('SELECT MIN(re.id) FROM recognized_entities re WHERE re.pmid = ? AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != \'medmentions\')')
+            c.execute(sql, (next_pmid,))
+            row = c.fetchone()
+            if row and row[0]:
+                next_abstract_index = row[0]
         # Fast random eligible annotation
         random_annotation_index = get_next_skip_index(0, assessor, conn, paramstyle)
         # Fast random eligible abstract: pick a random eligible annotation, then use its pmid
@@ -209,7 +242,7 @@ def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
             prev_index = valid_indices[idx_pos - 1] if idx_pos > 0 else None
             next_index = valid_indices[idx_pos + 1] if idx_pos < len(valid_indices) - 1 else None
         # Abstract navigation (prev/next) in non-skip mode
-        sql = q('''SELECT DISTINCT re.pmid FROM recognized_entities re JOIN results r ON re.id = r.idx ORDER BY re.pmid''')
+        sql = q('''SELECT DISTINCT pmid FROM recognized_entities WHERE id IN (SELECT DISTINCT idx FROM results) ORDER BY pmid''')
         c.execute(sql)
         valid_pmids = [row[0] for row in c.fetchall()]
         pmid_pos = valid_pmids.index(pmid) if pmid and pmid in valid_pmids else None

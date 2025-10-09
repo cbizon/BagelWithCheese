@@ -16,7 +16,7 @@ app = Flask(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
-    # Removed --model argument
+    parser.add_argument('--port', type=int, default=5000, help='Port to run the Flask app on')
     return parser.parse_args()
 
 args = get_args()
@@ -373,4 +373,4 @@ def confusion_matrix_assessment():
     return render_template('confusion_matrix_assessment.html', matrix=matrix, model=selected_model, assessor=assessor)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=args.port)
