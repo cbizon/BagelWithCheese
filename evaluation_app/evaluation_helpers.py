@@ -75,31 +75,32 @@ def get_next_skip_index(index, assessor, conn, paramstyle='?'):
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
-        SELECT re.id
-        FROM recognized_entities re
-        WHERE re.id > ?
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id)
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != 'medmentions')
-        AND NOT (
-            -- Skip if all models agree (same non-NULL identifier and no NULLs)
-            (SELECT COUNT(DISTINCT r.identifier) FROM results r WHERE r.idx = re.id AND r.identifier IS NOT NULL) = 1
-            AND NOT EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.identifier IS NULL)
-            AND (SELECT COUNT(*) FROM results r WHERE r.idx = re.id) > 1
-        )
-        AND (
-            SELECT COUNT(DISTINCT res.identifier)
-            FROM results res
-            WHERE res.idx = re.id AND res.identifier IS NOT NULL
-        ) > (
-            SELECT COUNT(DISTINCT a.identifier)
+        WITH eligible_indices AS (
+            SELECT
+                r.idx,
+                COUNT(DISTINCT CASE WHEN r.identifier IS NOT NULL THEN r.identifier END) as distinct_identifiers,
+                COUNT(CASE WHEN r.identifier IS NULL THEN 1 END) as null_count,
+                COUNT(*) as total_models,
+                MAX(CASE WHEN r.model != 'medmentions' THEN 1 ELSE 0 END) as has_non_medmentions
+            FROM results r
+            WHERE r.idx > ?
+            GROUP BY r.idx
+        ),
+        assessed_counts AS (
+            SELECT
+                a.idx,
+                COUNT(DISTINCT a.identifier) as assessed_count
             FROM assessment a
-            WHERE a.idx = re.id AND a.assessor = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results res2 
-                WHERE res2.idx = re.id AND res2.identifier IS NOT NULL
-              )
+            WHERE a.assessor = ?
+            GROUP BY a.idx
         )
-        ORDER BY re.id ASC
+        SELECT ei.idx
+        FROM eligible_indices ei
+        LEFT JOIN assessed_counts ac ON ei.idx = ac.idx
+        WHERE ei.has_non_medmentions = 1
+          AND NOT (ei.distinct_identifiers = 1 AND ei.null_count = 0 AND ei.total_models > 1)
+          AND ei.distinct_identifiers > COALESCE(ac.assessed_count, 0)
+        ORDER BY ei.idx ASC
         LIMIT 1
     ''')
     c.execute(sql, (index, assessor))
@@ -111,31 +112,32 @@ def get_prev_skip_index(index, assessor, conn, paramstyle='?'):
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
     sql = q('''
-        SELECT re.id
-        FROM recognized_entities re
-        WHERE re.id < ?
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id)
-        AND EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.model != 'medmentions')
-        AND NOT (
-            -- Skip if all models agree (same non-NULL identifier and no NULLs)
-            (SELECT COUNT(DISTINCT r.identifier) FROM results r WHERE r.idx = re.id AND r.identifier IS NOT NULL) = 1
-            AND NOT EXISTS (SELECT 1 FROM results r WHERE r.idx = re.id AND r.identifier IS NULL)
-            AND (SELECT COUNT(*) FROM results r WHERE r.idx = re.id) > 1
-        )
-        AND (
-            SELECT COUNT(DISTINCT res.identifier)
-            FROM results res
-            WHERE res.idx = re.id AND res.identifier IS NOT NULL
-        ) > (
-            SELECT COUNT(DISTINCT a.identifier)
+        WITH eligible_indices AS (
+            SELECT
+                r.idx,
+                COUNT(DISTINCT CASE WHEN r.identifier IS NOT NULL THEN r.identifier END) as distinct_identifiers,
+                COUNT(CASE WHEN r.identifier IS NULL THEN 1 END) as null_count,
+                COUNT(*) as total_models,
+                MAX(CASE WHEN r.model != 'medmentions' THEN 1 ELSE 0 END) as has_non_medmentions
+            FROM results r
+            WHERE r.idx < ?
+            GROUP BY r.idx
+        ),
+        assessed_counts AS (
+            SELECT
+                a.idx,
+                COUNT(DISTINCT a.identifier) as assessed_count
             FROM assessment a
-            WHERE a.idx = re.id AND a.assessor = ?
-              AND a.identifier IN (
-                SELECT identifier FROM results res2 
-                WHERE res2.idx = re.id AND res2.identifier IS NOT NULL
-              )
+            WHERE a.assessor = ?
+            GROUP BY a.idx
         )
-        ORDER BY re.id DESC
+        SELECT ei.idx
+        FROM eligible_indices ei
+        LEFT JOIN assessed_counts ac ON ei.idx = ac.idx
+        WHERE ei.has_non_medmentions = 1
+          AND NOT (ei.distinct_identifiers = 1 AND ei.null_count = 0 AND ei.total_models > 1)
+          AND ei.distinct_identifiers > COALESCE(ac.assessed_count, 0)
+        ORDER BY ei.idx DESC
         LIMIT 1
     ''')
     c.execute(sql, (index, assessor))
