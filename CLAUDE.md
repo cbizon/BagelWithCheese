@@ -58,3 +58,8 @@ The skip logic is implemented in `get_next_skip_index()` and `get_prev_skip_inde
 - Enable via "Enter skip mode" link in top-right (appears after login)
 - Skip mode focuses on disagreement cases, regular mode shows all results
 - Navigation automatically updates based on mode
+
+## APIs
+
+@nodenorm.md
+@nameres.md

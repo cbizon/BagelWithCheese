@@ -187,6 +187,106 @@
             font-weight: normal;
             margin-left: 18px;
         }
+        /* Babel Info Modal Styles */
+        .babel-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+        }
+        .babel-modal-content {
+            background-color: #fefefe;
+            margin: 3% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 12px;
+            width: 80%;
+            max-width: 900px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .babel-modal-close {
+            color: #aaa;
+            float: right;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 20px;
+        }
+        .babel-modal-close:hover,
+        .babel-modal-close:focus {
+            color: #000;
+        }
+        .babel-info-link {
+            margin-left: 8px;
+            color: #337ab7;
+            text-decoration: none;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+        .babel-info-link:hover {
+            text-decoration: underline;
+        }
+        .babel-section {
+            margin-top: 20px;
+        }
+        .babel-section h3 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+        .babel-section h4 {
+            color: #34495e;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+        .babel-curie {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.95em;
+        }
+        .babel-synonym-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 12px;
+            background: #f9f9f9;
+        }
+        .babel-synonym {
+            padding: 4px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .babel-synonym:last-child {
+            border-bottom: none;
+        }
+        .babel-equiv-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .babel-loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .babel-error {
+            background: #fee;
+            border: 1px solid #fcc;
+            border-radius: 4px;
+            padding: 12px;
+            color: #c33;
+        }
     </style>
 </head>
 <body>
@@ -265,9 +365,22 @@
                                     <a href="https://uts.nlm.nih.gov/uts/umls/concept/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'NCIT' -%}
                                     <a href="https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'ENSEMBL' -%}
+                                    <a href="https://useast.ensembl.org/Homo_sapiens/Gene/Summary?db=core;g={{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'HGNC' -%}
+                                    <a href="https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'OMIM' -%}
+                                    <a href="https://omim.org/entry/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'UniProtKB' -%}
+                                    <a href="https://www.uniprot.org/uniprotkb/{{ local_id }}/entry" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'PR' -%}
+                                    <a href="http://purl.obolibrary.org/obo/PR_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                {%- elif prefix == 'DOID' -%}
+                                    <a href="https://disease-ontology.org/term/DOID:{{ local_id }}/" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- else -%}
                                     {{ info.identifier }}
                                 {%- endif -%}
+                                <a class="babel-info-link" onclick="openBabelInfo('{{ info.identifier }}')" title="View Babel Info (synonyms and equivalent identifiers)">Babel Info</a>
                             </div>
                             {% if info.label %}
                                 <div style="font-weight:bold; color:#2c3e50; margin-bottom:2px;">{{ info.label }}</div>
@@ -290,10 +403,157 @@
             </div>
         </div>
     </div>
+
+    <!-- Babel Info Modal -->
+    <div id="babelModal" class="babel-modal">
+        <div class="babel-modal-content">
+            <span class="babel-modal-close" onclick="closeBabelInfo()">&times;</span>
+            <div id="babelModalBody">
+                <div class="babel-loading">Loading Babel Info...</div>
+            </div>
+        </div>
+    </div>
+
     <script type="text/javascript">
     // Global JS error handler for debugging
     window.onerror = function(message, source, lineno, colno, error) {
         console.error('[GlobalError]', message, 'at', source + ':' + lineno + ':' + colno, error);
+    }
+
+    // Babel Info Modal Functions
+    // Helper function to generate linkout URL for a CURIE
+    function getCurieLinkout(identifier) {
+        const parts = identifier.split(':', 2);
+        if (parts.length < 2) return null;
+        const prefix = parts[0];
+        const localId = parts[1];
+
+        const linkMap = {
+            'PUBCHEM.COMPOUND': 'https://pubchem.ncbi.nlm.nih.gov/compound/' + localId,
+            'MONDO': 'http://purl.obolibrary.org/obo/MONDO_' + localId,
+            'GO': 'http://purl.obolibrary.org/obo/GO_' + localId,
+            'UBERON': 'http://purl.obolibrary.org/obo/UBERON_' + localId,
+            'EFO': 'http://www.ebi.ac.uk/efo/EFO_' + localId,
+            'NCBIGene': 'https://www.ncbi.nlm.nih.gov/gene/' + localId,
+            'NCBITaxon': 'http://purl.obolibrary.org/obo/NCBITaxon_' + localId,
+            'CHEBI': 'https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:' + localId,
+            'MESH': 'https://id.nlm.nih.gov/mesh/' + localId + '.html',
+            'HP': 'http://purl.obolibrary.org/obo/HP_' + localId,
+            'UMLS': 'https://uts.nlm.nih.gov/uts/umls/concept/' + localId,
+            'NCIT': 'https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/' + localId,
+            'ENSEMBL': 'https://useast.ensembl.org/Homo_sapiens/Gene/Summary?db=core;g=' + localId,
+            'HGNC': 'https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/' + localId,
+            'OMIM': 'https://omim.org/entry/' + localId,
+            'UniProtKB': 'https://www.uniprot.org/uniprotkb/' + localId + '/entry',
+            'PR': 'http://purl.obolibrary.org/obo/PR_' + localId,
+            'DOID': 'https://disease-ontology.org/term/DOID:' + localId + '/'
+        };
+
+        return linkMap[prefix] || null;
+    }
+
+    function openBabelInfo(curie) {
+        const modal = document.getElementById('babelModal');
+        const modalBody = document.getElementById('babelModalBody');
+
+        // Show modal with loading state
+        modal.style.display = 'block';
+        modalBody.innerHTML = '<div class="babel-loading">Loading Babel Info...</div>';
+
+        // Fetch Babel info from backend
+        fetch('/babel_info/' + encodeURIComponent(curie))
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'error') {
+                    modalBody.innerHTML = '<div class="babel-error">Error loading Babel Info: ' + data.message + '</div>';
+                    return;
+                }
+
+                // Build the display
+                let html = '<h2>Babel Info for <span class="babel-curie">' + curie + '</span></h2>';
+
+                // Node Normalization section
+                html += '<div class="babel-section">';
+                html += '<h3>Node Normalization</h3>';
+
+                const nodenorm = data.nodenorm;
+                if (nodenorm && Object.keys(nodenorm).length > 0) {
+                    if (nodenorm.id) {
+                        html += '<h4>Preferred Identifier:</h4>';
+                        const prefLink = getCurieLinkout(nodenorm.id.identifier);
+                        html += '<p>';
+                        if (prefLink) {
+                            html += '<a href="' + prefLink + '" target="_blank" rel="noopener" class="babel-curie" style="color:#337ab7; text-decoration:underline;">' + nodenorm.id.identifier + '</a>';
+                        } else {
+                            html += '<span class="babel-curie">' + nodenorm.id.identifier + '</span>';
+                        }
+                        if (nodenorm.id.label) {
+                            html += ' - ' + nodenorm.id.label;
+                        }
+                        html += '</p>';
+                    }
+
+                    if (nodenorm.type && nodenorm.type.length > 0) {
+                        html += '<h4>Types:</h4>';
+                        html += '<p>' + nodenorm.type.slice(0, 3).join(', ') + '</p>';
+                    }
+
+                    if (nodenorm.equivalent_identifiers && nodenorm.equivalent_identifiers.length > 0) {
+                        html += '<h4>Equivalent Identifiers (' + nodenorm.equivalent_identifiers.length + '):</h4>';
+                        html += '<div class="babel-equiv-list">';
+                        nodenorm.equivalent_identifiers.forEach(eq => {
+                            const link = getCurieLinkout(eq.identifier);
+                            const displayText = eq.identifier + (eq.label ? ' - ' + eq.label : '');
+                            if (link) {
+                                html += '<a href="' + link + '" target="_blank" rel="noopener" class="babel-curie" style="color:#337ab7; text-decoration:underline;" title="' + displayText + '">' + eq.identifier + (eq.label ? '<br><small>' + eq.label + '</small>' : '') + '</a>';
+                            } else {
+                                html += '<span class="babel-curie" title="' + displayText + '">' + eq.identifier + (eq.label ? '<br><small>' + eq.label + '</small>' : '') + '</span>';
+                            }
+                        });
+                        html += '</div>';
+                    }
+                } else {
+                    html += '<p style="color:#888;">No normalization data available</p>';
+                }
+                html += '</div>';
+
+                // Name Resolution section
+                html += '<div class="babel-section">';
+                html += '<h3>Name Resolution (Synonyms)</h3>';
+
+                const nameres = data.nameres;
+                if (nameres && nameres.names && nameres.names.length > 0) {
+                    html += '<h4>Preferred Name:</h4>';
+                    html += '<p><strong>' + (nameres.preferred_name || 'N/A') + '</strong></p>';
+
+                    html += '<h4>All Synonyms (' + nameres.names.length + '):</h4>';
+                    html += '<div class="babel-synonym-list">';
+                    nameres.names.forEach(name => {
+                        html += '<div class="babel-synonym">' + name + '</div>';
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p style="color:#888;">No synonym data available</p>';
+                }
+                html += '</div>';
+
+                modalBody.innerHTML = html;
+            })
+            .catch(error => {
+                modalBody.innerHTML = '<div class="babel-error">Error fetching Babel Info: ' + error.message + '</div>';
+            });
+    }
+
+    function closeBabelInfo() {
+        document.getElementById('babelModal').style.display = 'none';
+    }
+
+    // Close modal when clicking outside of it
+    window.onclick = function(event) {
+        const modal = document.getElementById('babelModal');
+        if (event.target === modal) {
+            closeBabelInfo();
+        }
     }
 
     // Expose assessor assessments as a JS variable

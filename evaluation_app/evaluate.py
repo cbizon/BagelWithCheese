@@ -4,6 +4,7 @@ import os
 import argparse
 import sys
 import psycopg2
+import requests
 from evaluation_helpers import (
     get_abstract_metadata,
     get_valid_indices,
@@ -371,6 +372,54 @@ def confusion_matrix_assessment():
         selected_model = app.config['MODEL']
     matrix = calculate_confusion_matrix_vs_assessment(selected_model, assessor)
     return render_template('confusion_matrix_assessment.html', matrix=matrix, model=selected_model, assessor=assessor)
+
+@app.route('/babel_info/<path:curie>')
+def babel_info(curie):
+    """Fetch combined nodenorm and nameres data for a CURIE."""
+    try:
+        # Call nodenormalizer
+        nodenorm_url = 'https://nodenormalization-sri.renci.org/get_normalized_nodes'
+        nodenorm_payload = {
+            "curies": [curie],
+            "conflate": True,
+            "description": False,
+            "drug_chemical_conflate": True
+        }
+        nodenorm_response = requests.post(nodenorm_url, json=nodenorm_payload, timeout=10)
+        nodenorm_data = nodenorm_response.json() if nodenorm_response.status_code == 200 else {}
+
+        # Extract preferred CURIE for nameres (nameres requires preferred ID)
+        preferred_curie = curie
+        if curie in nodenorm_data and nodenorm_data[curie] and 'id' in nodenorm_data[curie]:
+            preferred_curie = nodenorm_data[curie]['id']['identifier']
+
+        # Call name resolver for synonyms - using the correct payload format
+        nameres_url = 'https://name-resolution-sri.renci.org/synonyms'
+        nameres_payload = {
+            "preferred_curies": [preferred_curie]
+        }
+        nameres_response = requests.post(nameres_url, json=nameres_payload, timeout=10)
+        nameres_data = nameres_response.json() if nameres_response.status_code == 200 else {}
+
+        print(f"[DEBUG] CURIE: {curie}, Preferred: {preferred_curie}")
+        print(f"[DEBUG] Nameres response status: {nameres_response.status_code}")
+        print(f"[DEBUG] Nameres data keys: {list(nameres_data.keys())}")
+
+        return jsonify({
+            'status': 'success',
+            'curie': curie,
+            'preferred_curie': preferred_curie,
+            'nodenorm': nodenorm_data.get(curie, {}),
+            'nameres': nameres_data.get(preferred_curie, {})
+        })
+    except Exception as e:
+        print(f"[ERROR] Babel info error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=args.port)
