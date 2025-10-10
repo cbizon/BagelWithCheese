@@ -103,6 +103,24 @@ def load_assessment(conn, tsv_path):
     conn.commit()
     print(f"Loaded {count} rows into assessment table.")
 
+def create_assignments_table(conn):
+    with conn.cursor() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS assignments (
+            id SERIAL PRIMARY KEY,
+            assessor TEXT NOT NULL,
+            pmid TEXT NOT NULL,
+            idx INTEGER NOT NULL,
+            span_text TEXT NOT NULL,
+            completed BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(assessor, idx)
+        )''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor ON assignments(assessor)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_completed ON assignments(assessor, completed)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_pmid ON assignments(assessor, pmid)')
+    conn.commit()
+    print("Created assignments table.")
+
 def update_results(conn, tsv_path):
     with conn.cursor() as c:
         c.execute('''CREATE TABLE IF NOT EXISTS results (
@@ -147,6 +165,7 @@ def main():
         load_recognized_entities(conn, os.path.join(input_dir, 'recognized_entities.tsv'))
         load_results(conn, os.path.join(input_dir, 'results.tsv'))
         load_assessment(conn, os.path.join(input_dir, 'assessment.tsv'))
+        create_assignments_table(conn)
         print(f"Database loaded at {args.dbname}")
     conn.close()
 

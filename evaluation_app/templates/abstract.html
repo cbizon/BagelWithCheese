@@ -107,6 +107,25 @@
             align-items: center;
             gap: 18px;
         }
+        .assignment-stats {
+            position: absolute;
+            top: 64px;
+            right: 40px;
+            font-size: 0.95em;
+            color: #555;
+            background: #e8f5e9;
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #a5d6a7;
+        }
+        .assignment-mode-indicator {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #856404;
+        }
         .user-greeting-link {
             display: inline;
             font-size: 0.95em;
@@ -292,9 +311,19 @@
 <body>
     <div class="user-greeting" id="assessor-greeting" style="display:none;">
         <span id="assessor-greeting-text"></span>
-        <a class="user-greeting-link" id="skip-mode-link" style="display:none; cursor:pointer;">Enter skip mode</a>
+        {% if has_assignments %}
+            <span class="assignment-mode-indicator">Assignment Mode</span>
+        {% else %}
+            <a class="user-greeting-link" id="skip-mode-link" style="display:none; cursor:pointer;">Enter skip mode</a>
+        {% endif %}
         <a class="user-greeting-link" id="forget-me-link" style="display:none;">log out</a>
     </div>
+    {% if has_assignments and assignment_stats %}
+    <div class="assignment-stats">
+        <strong>Progress:</strong> {{ assignment_stats.completed }} / {{ assignment_stats.total }} completed
+        ({{ assignment_stats.remaining }} remaining)
+    </div>
+    {% endif %}
     <div class="container">
         <h1><a href="https://pubmed.ncbi.nlm.nih.gov/{{ pmid }}/" target="_blank" rel="noopener" class="pmid-link">{{ pmid }}</a></h1>
         <div class="meta">
@@ -322,13 +351,23 @@
                         <a href="/{{ next_index }}">Next annotation &#8594;</a>
                     {% endif %}
                     <br>
-                    {# Line 3: Random links #}
-                    {% if random_abstract_url %}
-                        <a href="{{ random_abstract_url }}">Random abstract &#128256;</a>
-                    {% endif %}
-                    {% if random_annotation_url %}
-                        {% if random_abstract_url %} | {% endif %}
-                        <a href="{{ random_annotation_url }}">Random annotation &#127922;</a>
+                    {# Line 3: Assignment mode uncompleted navigation OR Random links #}
+                    {% if has_assignments %}
+                        {% if prev_uncompleted_url %}
+                            <a href="{{ prev_uncompleted_url }}">&#8678; Prev uncompleted</a>
+                        {% endif %}
+                        {% if next_uncompleted_url %}
+                            {% if prev_uncompleted_url %} | {% endif %}
+                            <a href="{{ next_uncompleted_url }}">Next uncompleted &#8680;</a>
+                        {% endif %}
+                    {% else %}
+                        {% if random_abstract_url %}
+                            <a href="{{ random_abstract_url }}">Random abstract &#128256;</a>
+                        {% endif %}
+                        {% if random_annotation_url %}
+                            {% if random_abstract_url %} | {% endif %}
+                            <a href="{{ random_annotation_url }}">Random annotation &#127922;</a>
+                        {% endif %}
                     {% endif %}
                 </div>
                 {% if original_text %}
@@ -593,13 +632,18 @@
         if (name) {
             greetingText.textContent = `Hi, ${name}`;
             forgetLink.style.display = '';
-            skipModeLink.style.display = '';
-            updateSkipModeLink();
-            console.log('[updateGreeting] showing skipModeLink:', skipModeLink, 'display:', skipModeLink.style.display);
+            // Only update skip mode link if it exists (not in assignment mode)
+            if (skipModeLink) {
+                skipModeLink.style.display = '';
+                updateSkipModeLink();
+                console.log('[updateGreeting] showing skipModeLink:', skipModeLink, 'display:', skipModeLink.style.display);
+            }
         } else {
             greetingText.innerHTML = '<a id="login-link" class="user-greeting-link" style="cursor:pointer;">Identify yourself to start assessing!</a>';
             forgetLink.style.display = 'none';
-            skipModeLink.style.display = 'none';
+            if (skipModeLink) {
+                skipModeLink.style.display = 'none';
+            }
             // Add click handler for login link
             const loginLink = document.getElementById('login-link');
             if (loginLink) {
@@ -678,13 +722,15 @@
             window.location.reload();
         });
 
-        // Toggle skip mode (ensure not duplicated)
+        // Toggle skip mode (ensure not duplicated) - only if element exists
         const skipModeLinkEl = document.getElementById('skip-mode-link');
-        skipModeLinkEl.onclick = null;
-        skipModeLinkEl.addEventListener('click', function() {
-            setSkipModeState(!getSkipModeState());
-            console.log('[skipModeLink] toggled, now:', getSkipModeState());
-        });
+        if (skipModeLinkEl) {
+            skipModeLinkEl.onclick = null;
+            skipModeLinkEl.addEventListener('click', function() {
+                setSkipModeState(!getSkipModeState());
+                console.log('[skipModeLink] toggled, now:', getSkipModeState());
+            });
+        }
 
         // Remove user param from navigation links (no longer needed)
         document.querySelectorAll('.meta a').forEach(function(link) {

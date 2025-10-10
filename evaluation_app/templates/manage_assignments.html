@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Manage Assignments</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #2c3e50; }
+        .upload-section {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .file-input {
+            margin: 20px 0;
+        }
+        input[type="file"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .result.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .instructions {
+            background: #e8f4f8;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .instructions code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #3498db;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .assignments-view {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            border: 1px solid #ddd;
+        }
+        .summary-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: #3498db;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 6px;
+            flex: 1;
+            text-align: center;
+        }
+        .stat-box h3 {
+            margin: 0 0 5px 0;
+            font-size: 2em;
+        }
+        .stat-box p {
+            margin: 0;
+            font-size: 0.9em;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+        tr:hover {
+            background: #f9f9f9;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #2ecc71;
+            transition: width 0.3s;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Manage Assignments</h1>
+
+        <div class="assignments-view">
+            <h2>Current Assignments</h2>
+            <div class="summary-stats">
+                <div class="stat-box">
+                    <h3 id="totalAssessors">-</h3>
+                    <p>Assessors</p>
+                </div>
+                <div class="stat-box">
+                    <h3 id="totalAssignments">-</h3>
+                    <p>Total Assignments</p>
+                </div>
+            </div>
+
+            <div id="assignmentsTable"></div>
+        </div>
+
+        <div class="upload-section">
+            <h2>Upload Assignment TSV</h2>
+            <div class="file-input">
+                <input type="file" id="fileInput" accept=".tsv">
+            </div>
+            <button onclick="uploadFile()" id="uploadButton">Upload Assignments</button>
+
+            <div id="result" class="result"></div>
+        </div>
+
+        <div class="instructions">
+            <h3>Instructions</h3>
+            <p>Upload a TSV (tab-separated values) file with the following format:</p>
+            <ul>
+                <li>Header row: <code>assessor	pmid</code></li>
+                <li>Data rows: One row per abstract assignment</li>
+                <li>Example: <code>alice	25763772</code></li>
+            </ul>
+            <p><strong>The system will automatically:</strong></p>
+            <ul>
+                <li>Find all annotations in each abstract</li>
+                <li>Filter to only include annotations where models disagree</li>
+                <li>Create assignment records for the specified assessor</li>
+            </ul>
+            <p><strong>Example TSV content:</strong></p>
+            <pre style="background: #f0f0f0; padding: 10px; border-radius: 4px;">assessor	pmid
+alice	25763772
+alice	25847295
+bob	26316050</pre>
+        </div>
+
+        <a href="/" class="back-link">← Back to evaluation</a>
+    </div>
+
+    <script>
+        // Load assignments on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAssignments();
+        });
+
+        function loadAssignments() {
+            fetch('/get_assignments')
+                .then(response => response.json())
+                .then(data => {
+                    // Update summary stats
+                    document.getElementById('totalAssessors').textContent = data.total_assessors;
+                    document.getElementById('totalAssignments').textContent = data.total_assignments;
+
+                    // Build table
+                    const tableDiv = document.getElementById('assignmentsTable');
+
+                    if (data.summary.length === 0) {
+                        tableDiv.innerHTML = '<div class="empty-state">No assignments yet. Upload a TSV file to get started.</div>';
+                        return;
+                    }
+
+                    let html = '<table><thead><tr>';
+                    html += '<th>Assessor</th>';
+                    html += '<th>PMID</th>';
+                    html += '<th>Annotations</th>';
+                    html += '<th>Completed</th>';
+                    html += '<th>Remaining</th>';
+                    html += '<th>Progress</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.summary.forEach(row => {
+                        const progress = row.total > 0 ? Math.round((row.completed / row.total) * 100) : 0;
+                        html += '<tr>';
+                        html += `<td><strong>${row.assessor}</strong></td>`;
+                        html += `<td><a href="https://pubmed.ncbi.nlm.nih.gov/${row.pmid}/" target="_blank" rel="noopener">${row.pmid}</a></td>`;
+                        html += `<td>${row.total}</td>`;
+                        html += `<td>${row.completed}</td>`;
+                        html += `<td>${row.remaining}</td>`;
+                        html += `<td><div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div> ${progress}%</td>`;
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table>';
+                    tableDiv.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error loading assignments:', error);
+                    document.getElementById('assignmentsTable').innerHTML =
+                        '<div class="empty-state">Error loading assignments.</div>';
+                });
+        }
+
+        function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadButton = document.getElementById('uploadButton');
+            const resultDiv = document.getElementById('result');
+
+            if (!fileInput.files.length) {
+                showResult('error', 'Please select a file first');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            uploadButton.disabled = true;
+            uploadButton.textContent = 'Uploading...';
+            resultDiv.style.display = 'none';
+
+            fetch('/upload_assignments', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    let message = `Success! Loaded ${data.total_annotations} annotations from ${data.total_abstracts} abstracts.`;
+                    if (data.abstracts_with_no_eligible > 0) {
+                        message += `\n\n${data.abstracts_with_no_eligible} abstracts had no eligible annotations.`;
+                        if (data.abstracts_with_no_eligible_list && data.abstracts_with_no_eligible_list.length > 0) {
+                            message += '\nFirst few: ' + data.abstracts_with_no_eligible_list.join(', ');
+                        }
+                    }
+                    showResult('success', message);
+                    fileInput.value = '';
+                    // Refresh the assignments table
+                    loadAssignments();
+                } else {
+                    showResult('error', 'Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                showResult('error', 'Error uploading file: ' + error.message);
+            })
+            .finally(() => {
+                uploadButton.disabled = false;
+                uploadButton.textContent = 'Upload Assignments';
+            });
+        }
+
+        function showResult(type, message) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = 'result ' + type;
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
