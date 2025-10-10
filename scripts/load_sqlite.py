@@ -88,6 +88,25 @@ def load_assessment(db_path, tsv_path):
     conn.commit()
     conn.close()
 
+def create_assignments_table(db_path):
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assessor TEXT NOT NULL,
+        pmid TEXT NOT NULL,
+        idx INTEGER NOT NULL,
+        span_text TEXT NOT NULL,
+        completed BOOLEAN NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(assessor, idx)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor ON assignments(assessor)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_completed ON assignments(assessor, completed)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_pmid ON assignments(assessor, pmid)')
+    conn.commit()
+    conn.close()
+
 def update_results(db_path, tsv_path):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -129,6 +148,7 @@ def main():
         load_recognized_entities(db_path, os.path.join(input_dir, 'recognized_entities.tsv'))
         load_results(db_path, os.path.join(input_dir, 'results.tsv'))
         load_assessment(db_path, os.path.join(input_dir, 'assessment.tsv'))
+        create_assignments_table(db_path)
         print(f"Database created at {db_path}")
 
 if __name__ == '__main__':

@@ -213,6 +213,25 @@ def create_assessment_table(db_path):
     conn.commit()
     conn.close()
 
+def create_assignments_table(db_path):
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assessor TEXT NOT NULL,
+        pmid TEXT NOT NULL,
+        idx INTEGER NOT NULL,
+        span_text TEXT NOT NULL,
+        completed BOOLEAN NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(assessor, idx)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor ON assignments(assessor)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_completed ON assignments(assessor, completed)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_assignments_assessor_pmid ON assignments(assessor, pmid)')
+    conn.commit()
+    conn.close()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--run', required=True, help='Run name (output will be placed in data/{run})')
@@ -235,6 +254,7 @@ def main():
     results_tsv_path = os.path.join(output_dir, 'results_all.tsv')
     build_model_results_table(colormap_path, results_tsv_path, db_path)
     create_assessment_table(db_path)
+    create_assignments_table(db_path)
     print(f"Database created at {db_path}")
 
 if __name__ == "__main__":

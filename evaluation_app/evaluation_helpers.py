@@ -183,6 +183,141 @@ def get_prev_skip_index(index, assessor, conn, paramstyle='?'):
         # Move to next batch
         current_idx = candidates[-1]
 
+def check_has_assignments(assessor, conn, paramstyle='?'):
+    """Check if assessor has any assignments."""
+    if not assessor:
+        return False
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+    sql = q('SELECT COUNT(*) FROM assignments WHERE assessor = ?')
+    c.execute(sql, (assessor,))
+    count = c.fetchone()[0]
+    return count > 0
+
+def get_assignment_stats(assessor, conn, paramstyle='?'):
+    """Get assignment completion statistics for an assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+
+    # Total assignments
+    sql = q('SELECT COUNT(*) FROM assignments WHERE assessor = ?')
+    c.execute(sql, (assessor,))
+    total = c.fetchone()[0]
+
+    # Completed assignments
+    sql = q('SELECT COUNT(*) FROM assignments WHERE assessor = ? AND completed = ?')
+    if paramstyle == '%s':
+        c.execute(sql, (assessor, True))
+    else:
+        c.execute(sql, (assessor, 1))
+    completed = c.fetchone()[0]
+
+    remaining = total - completed
+
+    return {
+        'total': total,
+        'completed': completed,
+        'remaining': remaining
+    }
+
+def get_next_assigned_index(index, assessor, conn, paramstyle='?'):
+    """Get next annotation in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+    sql = q('SELECT idx FROM assignments WHERE assessor = ? AND idx > ? ORDER BY idx ASC LIMIT 1')
+    c.execute(sql, (assessor, index))
+    row = c.fetchone()
+    return row[0] if row else None
+
+def get_prev_assigned_index(index, assessor, conn, paramstyle='?'):
+    """Get previous annotation in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+    sql = q('SELECT idx FROM assignments WHERE assessor = ? AND idx < ? ORDER BY idx DESC LIMIT 1')
+    c.execute(sql, (assessor, index))
+    row = c.fetchone()
+    return row[0] if row else None
+
+def get_next_uncompleted_assignment(index, assessor, conn, paramstyle='?'):
+    """Get next uncompleted annotation in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+    if paramstyle == '%s':
+        sql = 'SELECT idx FROM assignments WHERE assessor = %s AND idx > %s AND completed = false ORDER BY idx ASC LIMIT 1'
+        c.execute(sql, (assessor, index))
+    else:
+        sql = 'SELECT idx FROM assignments WHERE assessor = ? AND idx > ? AND completed = 0 ORDER BY idx ASC LIMIT 1'
+        c.execute(sql, (assessor, index))
+    row = c.fetchone()
+    return row[0] if row else None
+
+def get_prev_uncompleted_assignment(index, assessor, conn, paramstyle='?'):
+    """Get previous uncompleted annotation in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+    if paramstyle == '%s':
+        sql = 'SELECT idx FROM assignments WHERE assessor = %s AND idx < %s AND completed = false ORDER BY idx DESC LIMIT 1'
+        c.execute(sql, (assessor, index))
+    else:
+        sql = 'SELECT idx FROM assignments WHERE assessor = ? AND idx < ? AND completed = 0 ORDER BY idx DESC LIMIT 1'
+        c.execute(sql, (assessor, index))
+    row = c.fetchone()
+    return row[0] if row else None
+
+def get_next_assigned_abstract(index, assessor, conn, paramstyle='?'):
+    """Get first annotation of next abstract in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+
+    # Get current pmid
+    sql = q('SELECT pmid FROM assignments WHERE assessor = ? AND idx = ?')
+    c.execute(sql, (assessor, index))
+    current_pmid_row = c.fetchone()
+    if not current_pmid_row:
+        return None
+    current_pmid = current_pmid_row[0]
+
+    # Get next pmid
+    sql = q('SELECT DISTINCT pmid FROM assignments WHERE assessor = ? AND pmid > ? ORDER BY pmid ASC LIMIT 1')
+    c.execute(sql, (assessor, current_pmid))
+    next_pmid_row = c.fetchone()
+    if not next_pmid_row:
+        return None
+    next_pmid = next_pmid_row[0]
+
+    # Get first idx for that pmid
+    sql = q('SELECT MIN(idx) FROM assignments WHERE assessor = ? AND pmid = ?')
+    c.execute(sql, (assessor, next_pmid))
+    row = c.fetchone()
+    return row[0] if row and row[0] else None
+
+def get_prev_assigned_abstract(index, assessor, conn, paramstyle='?'):
+    """Get first annotation of previous abstract in assignments for this assessor."""
+    c = conn.cursor()
+    q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
+
+    # Get current pmid
+    sql = q('SELECT pmid FROM assignments WHERE assessor = ? AND idx = ?')
+    c.execute(sql, (assessor, index))
+    current_pmid_row = c.fetchone()
+    if not current_pmid_row:
+        return None
+    current_pmid = current_pmid_row[0]
+
+    # Get previous pmid
+    sql = q('SELECT DISTINCT pmid FROM assignments WHERE assessor = ? AND pmid < ? ORDER BY pmid DESC LIMIT 1')
+    c.execute(sql, (assessor, current_pmid))
+    prev_pmid_row = c.fetchone()
+    if not prev_pmid_row:
+        return None
+    prev_pmid = prev_pmid_row[0]
+
+    # Get first idx for that pmid
+    sql = q('SELECT MIN(idx) FROM assignments WHERE assessor = ? AND pmid = ?')
+    c.execute(sql, (assessor, prev_pmid))
+    row = c.fetchone()
+    return row[0] if row and row[0] else None
+
 def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
     c = conn.cursor()
     q = lambda sql: sql.replace('?', '%s') if paramstyle == '%s' else sql
@@ -190,7 +325,22 @@ def get_navigation(index, assessor, skip_mode, conn, pmid=None, paramstyle='?'):
     prev_abstract_index = next_abstract_index = None
     prev_abstract_url = next_abstract_url = None
     random_annotation_index = random_abstract_index = None
-    if skip_mode and assessor:
+
+    # Check if user has assignments (assignment mode takes precedence)
+    has_assignments = check_has_assignments(assessor, conn, paramstyle)
+
+    if has_assignments:
+        # Assignment mode navigation
+        next_index = get_next_assigned_index(index, assessor, conn, paramstyle)
+        prev_index = get_prev_assigned_index(index, assessor, conn, paramstyle)
+        next_abstract_index = get_next_assigned_abstract(index, assessor, conn, paramstyle)
+        prev_abstract_index = get_prev_assigned_abstract(index, assessor, conn, paramstyle)
+
+        # For random, just pick first uncompleted
+        random_annotation_index = get_next_uncompleted_assignment(0, assessor, conn, paramstyle)
+        random_abstract_index = random_annotation_index  # Same for now
+
+    elif skip_mode and assessor:
         next_index = get_next_skip_index(index, assessor, conn, paramstyle)
         prev_index = get_prev_skip_index(index, assessor, conn, paramstyle)
         # Abstract navigation (prev/next) in skip mode
