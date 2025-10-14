@@ -225,7 +225,8 @@ def calculate_confusion_matrix(model):
     conn, cursor, paramstyle, q, db_path = get_db_connection()
     # Get all indices where medmentions has a result
     sql = q('''
-        SELECT mm.idx, mm.identifier as medmentions_id, m.identifier as model_id, m.rowid as model_row_exists
+        SELECT mm.idx, mm.identifier as medmentions_id, m.identifier as model_id,
+               CASE WHEN m.idx IS NOT NULL THEN 1 ELSE 0 END as model_row_exists
         FROM results mm
         LEFT JOIN results m ON m.idx = mm.idx AND m.model = ?
         WHERE mm.model = 'medmentions' AND mm.identifier IS NOT NULL
@@ -234,7 +235,7 @@ def calculate_confusion_matrix(model):
     rows = cursor.fetchall()
     summary = {'match': 0, 'disagree': 0, 'null': 0}
     for idx, medmentions_id, model_id, model_row_exists in rows:
-        if model_row_exists is None:
+        if model_row_exists == 0:
             # No row for the model: skip
             continue
         if model_id is None:
@@ -313,19 +314,26 @@ def confusion_matrix():
         selected_model = app.config['MODEL']
     model = selected_model
     conn, cursor, paramstyle, q, db_path = get_db_connection()
-    # Get all rows for this model, with medmentions
-    sql = q('''
-        SELECT r.idx,
-               mm.identifier as medmentions_id,
-               m.identifier as model_id
-        FROM results r
-        LEFT JOIN results mm ON mm.idx = r.idx AND mm.model = 'medmentions'
-        LEFT JOIN results m ON m.idx = r.idx AND m.model = ?
-        WHERE r.model = 'medmentions' OR r.model = ?
-        GROUP BY r.idx
+    # Get all distinct indices first
+    sql_indices = q('''
+        SELECT DISTINCT idx FROM results WHERE model = 'medmentions' OR model = ?
     ''')
-    cursor.execute(sql, (model, model))
-    rows = cursor.fetchall()
+    cursor.execute(sql_indices, (model,))
+    indices = [row[0] for row in cursor.fetchall()]
+
+    rows = []
+    for idx in indices:
+        # Get medmentions identifier for this idx
+        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = \'medmentions\''), (idx,))
+        mm_row = cursor.fetchone()
+        medmentions_id = mm_row[0] if mm_row else None
+
+        # Get model identifier for this idx
+        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = ?'), (idx, model))
+        m_row = cursor.fetchone()
+        model_id = m_row[0] if m_row else None
+
+        rows.append((idx, medmentions_id, model_id))
     # Build confusion matrix
     # Rows: medmentions (present, null)
     # Columns: model (agrees, disagrees, is null)
@@ -352,19 +360,26 @@ def confusion_matrix():
 
 def calculate_confusion_matrix_vs_assessment(model, assessor):
     conn, cursor, paramstyle, q, db_path = get_db_connection()
-    # Get all idx with medmentions and model results
-    sql = q('''
-        SELECT r.idx,
-               mm.identifier as medmentions_id,
-               m.identifier as model_id
-        FROM results r
-        LEFT JOIN results mm ON mm.idx = r.idx AND mm.model = 'medmentions'
-        LEFT JOIN results m ON m.idx = r.idx AND m.model = ?
-        WHERE r.model = 'medmentions' OR r.model = ?
-        GROUP BY r.idx
+    # Get all distinct indices first
+    sql_indices = q('''
+        SELECT DISTINCT idx FROM results WHERE model = 'medmentions' OR model = ?
     ''')
-    cursor.execute(sql, (model, model))
-    rows = cursor.fetchall()
+    cursor.execute(sql_indices, (model,))
+    indices = [row[0] for row in cursor.fetchall()]
+
+    rows = []
+    for idx in indices:
+        # Get medmentions identifier for this idx
+        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = \'medmentions\''), (idx,))
+        mm_row = cursor.fetchone()
+        medmentions_id = mm_row[0] if mm_row else None
+
+        # Get model identifier for this idx
+        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = ?'), (idx, model))
+        m_row = cursor.fetchone()
+        model_id = m_row[0] if m_row else None
+
+        rows.append((idx, medmentions_id, model_id))
     # Confusion matrix: rows=medmentions (True, False, Unsure), cols=model (True, False, Unsure, Null)
     matrix = {
         'True':    {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
