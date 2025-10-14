@@ -401,7 +401,7 @@
                                 {%- elif prefix == 'HP' -%}
                                     <a href="http://purl.obolibrary.org/obo/HP_{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'UMLS' -%}
-                                    <a href="https://uts.nlm.nih.gov/uts/umls/concept/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
+                                    <a href="https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncim/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'NCIT' -%}
                                     <a href="https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/{{ local_id }}" target="_blank" rel="noopener" class="pmid-link">{{ info.identifier }}</a>
                                 {%- elif prefix == 'ENSEMBL' -%}
@@ -478,7 +478,7 @@
             'CHEBI': 'https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:' + localId,
             'MESH': 'https://id.nlm.nih.gov/mesh/' + localId + '.html',
             'HP': 'http://purl.obolibrary.org/obo/HP_' + localId,
-            'UMLS': 'https://uts.nlm.nih.gov/uts/umls/concept/' + localId,
+            'UMLS': 'https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncim/' + localId,
             'NCIT': 'https://evsexplore.semantics.cancer.gov/evsexplore/concept/ncit/' + localId,
             'ENSEMBL': 'https://useast.ensembl.org/Homo_sapiens/Gene/Summary?db=core;g=' + localId,
             'HGNC': 'https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/' + localId,
