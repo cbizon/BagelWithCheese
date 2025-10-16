@@ -266,41 +266,43 @@ def results_summary():
         sql_total = q("SELECT COUNT(*) FROM results WHERE model = ?")
         cursor.execute(sql_total, (model,))
         total = cursor.fetchone()[0]
-        # NULLs for this model
-        sql_nulls = q("SELECT COUNT(*) FROM results WHERE model = ? AND identifier IS NULL")
-        cursor.execute(sql_nulls, (model,))
-        null_count = cursor.fetchone()[0]
-        null_fraction = (null_count / total) if total > 0 else 0.0
-        # Assessed by this user
-        sql_assessed = q("""
-            SELECT COUNT(DISTINCT r.idx)
-            FROM results r
-            JOIN assessment a ON r.idx = a.idx AND r.identifier = a.identifier
-            WHERE r.model = ? AND a.assessor = ?
-        """)
-        cursor.execute(sql_assessed, (model, assessor))
-        assessed_count = cursor.fetchone()[0]
-        # Add confusion matrix
+        # Add confusion matrix (global, no assessor)
         confusion = calculate_confusion_matrix(model)
-        # Add assessment confusion matrix
-        assessment_confusion = calculate_confusion_matrix_vs_assessment(model, assessor)
-        # Calculate row, column, and grand totals for the assessment confusion matrix
-        med_states = ['True', 'False', 'Unsure']
-        model_states = ['True', 'False', 'Unsure', 'Null']
-        row_totals = {med: sum(assessment_confusion[med][m] for m in model_states) for med in med_states}
-        col_totals = {m: sum(assessment_confusion[med][m] for med in med_states) for m in model_states}
-        grand_total = sum(row_totals.values())
+
+        # Get all assessors who have assessed this model
+        sql_assessors = q("""
+            SELECT DISTINCT a.assessor
+            FROM assessment a
+            JOIN results r ON a.idx = r.idx AND a.identifier = r.identifier
+            WHERE r.model = ?
+            ORDER BY a.assessor
+        """)
+        cursor.execute(sql_assessors, (model,))
+        assessors = [row[0] for row in cursor.fetchall()]
+
+        # Build assessment confusion matrices for each assessor
+        assessor_matrices = []
+        for assess in assessors:
+            assessment_confusion = calculate_confusion_matrix_vs_assessment(model, assess)
+            # Calculate row, column, and grand totals for the assessment confusion matrix
+            med_states = ['True', 'False', 'Unsure']
+            model_states = ['True', 'False', 'Unsure', 'Null']
+            row_totals = {med: sum(assessment_confusion[med][m] for m in model_states) for med in med_states}
+            col_totals = {m: sum(assessment_confusion[med][m] for med in med_states) for m in model_states}
+            grand_total = sum(row_totals.values())
+            assessor_matrices.append({
+                'assessor': assess,
+                'matrix': assessment_confusion,
+                'row_totals': row_totals,
+                'col_totals': col_totals,
+                'grand_total': grand_total
+            })
+
         model_summaries.append({
             'model': model,
             'total': total,
-            'null_count': null_count,
-            'null_fraction': null_fraction,
-            'assessed_count': assessed_count,
             'confusion_matrix': confusion,
-            'assessment_confusion_matrix': assessment_confusion,
-            'assessment_confusion_matrix_row_totals': row_totals,
-            'assessment_confusion_matrix_col_totals': col_totals,
-            'assessment_confusion_matrix_grand_total': grand_total
+            'assessor_matrices': assessor_matrices
         })
     conn.close()
     return render_template('results.html', model_summaries=model_summaries, assessor=assessor)
@@ -314,116 +316,130 @@ def confusion_matrix():
         selected_model = app.config['MODEL']
     model = selected_model
     conn, cursor, paramstyle, q, db_path = get_db_connection()
-    # Get all distinct indices first
-    sql_indices = q('''
-        SELECT DISTINCT idx FROM results WHERE model = 'medmentions' OR model = ?
+
+    # Use a single aggregating query instead of looping
+    sql = q('''
+        WITH combined AS (
+            SELECT
+                COALESCE(mm.idx, m.idx) as idx,
+                mm.identifier as medmentions_id,
+                m.identifier as model_id
+            FROM
+                (SELECT idx, identifier FROM results WHERE model = 'medmentions') mm
+            FULL OUTER JOIN
+                (SELECT idx, identifier FROM results WHERE model = ?) m
+            ON mm.idx = m.idx
+        )
+        SELECT
+            SUM(CASE WHEN medmentions_id IS NOT NULL AND model_id IS NOT NULL AND medmentions_id = model_id THEN 1 ELSE 0 END) as medmentions_present_agrees,
+            SUM(CASE WHEN medmentions_id IS NOT NULL AND model_id IS NOT NULL AND medmentions_id != model_id THEN 1 ELSE 0 END) as medmentions_present_disagrees,
+            SUM(CASE WHEN medmentions_id IS NOT NULL AND model_id IS NULL THEN 1 ELSE 0 END) as medmentions_present_is_null,
+            SUM(CASE WHEN medmentions_id IS NULL AND model_id IS NOT NULL AND model_id = medmentions_id THEN 1 ELSE 0 END) as medmentions_null_agrees,
+            SUM(CASE WHEN medmentions_id IS NULL AND model_id IS NOT NULL AND model_id != medmentions_id THEN 1 ELSE 0 END) as medmentions_null_disagrees,
+            SUM(CASE WHEN medmentions_id IS NULL AND model_id IS NULL THEN 1 ELSE 0 END) as medmentions_null_is_null
+        FROM combined
     ''')
-    cursor.execute(sql_indices, (model,))
-    indices = [row[0] for row in cursor.fetchall()]
+    cursor.execute(sql, (model,))
+    row = cursor.fetchone()
 
-    rows = []
-    for idx in indices:
-        # Get medmentions identifier for this idx
-        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = \'medmentions\''), (idx,))
-        mm_row = cursor.fetchone()
-        medmentions_id = mm_row[0] if mm_row else None
-
-        # Get model identifier for this idx
-        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = ?'), (idx, model))
-        m_row = cursor.fetchone()
-        model_id = m_row[0] if m_row else None
-
-        rows.append((idx, medmentions_id, model_id))
-    # Build confusion matrix
-    # Rows: medmentions (present, null)
-    # Columns: model (agrees, disagrees, is null)
     matrix = {
-        'medmentions_present': {'agrees': 0, 'disagrees': 0, 'is_null': 0},
-        'medmentions_null': {'agrees': 0, 'disagrees': 0, 'is_null': 0}
+        'medmentions_present': {
+            'agrees': row[0] or 0,
+            'disagrees': row[1] or 0,
+            'is_null': row[2] or 0
+        },
+        'medmentions_null': {
+            'agrees': row[3] or 0,
+            'disagrees': row[4] or 0,
+            'is_null': row[5] or 0
+        }
     }
-    for idx, medmentions_id, model_id in rows:
-        medmentions_is_null = medmentions_id is None
-        model_is_null = model_id is None
-        if medmentions_is_null:
-            row_key = 'medmentions_null'
-        else:
-            row_key = 'medmentions_present'
-        if model_is_null:
-            col_key = 'is_null'
-        elif not medmentions_is_null and model_id == medmentions_id:
-            col_key = 'agrees'
-        else:
-            col_key = 'disagrees'
-        matrix[row_key][col_key] += 1
     conn.close()
     return render_template('confusion_matrix.html', matrix=matrix, model=model)
 
 def calculate_confusion_matrix_vs_assessment(model, assessor):
     conn, cursor, paramstyle, q, db_path = get_db_connection()
-    # Get all distinct indices first
-    sql_indices = q('''
-        SELECT DISTINCT idx FROM results WHERE model = 'medmentions' OR model = ?
-    ''')
-    cursor.execute(sql_indices, (model,))
-    indices = [row[0] for row in cursor.fetchall()]
 
-    rows = []
-    for idx in indices:
-        # Get medmentions identifier for this idx
-        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = \'medmentions\''), (idx,))
-        mm_row = cursor.fetchone()
-        medmentions_id = mm_row[0] if mm_row else None
-
-        # Get model identifier for this idx
-        cursor.execute(q('SELECT identifier FROM results WHERE idx = ? AND model = ?'), (idx, model))
-        m_row = cursor.fetchone()
-        model_id = m_row[0] if m_row else None
-
-        rows.append((idx, medmentions_id, model_id))
-    # Confusion matrix: rows=medmentions (True, False, Unsure), cols=model (True, False, Unsure, Null)
+    # Initialize matrix
     matrix = {
         'True':    {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
         'False':   {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
         'Unsure':  {'True': 0, 'False': 0, 'Unsure': 0, 'Null': 0},
     }
-    from evaluation_helpers import get_assessor_assessments
-    for idx, medmentions_id, model_id in rows:
-        # If medmentions and model agree (same non-null identifier), both are True
-        if medmentions_id is not None and model_id is not None and medmentions_id == model_id:
-            matrix['True']['True'] += 1
-            continue
-        # Otherwise, only consider idx if:
-        # - For every non-null result (medmentions or model), there is an assessment for that identifier
-        # - There is a result for the model (not missing)
-        if model_id is None:
-            model_state = 'Null'
-        else:
-            model_state = None
-        # Get all assessments for this idx and assessor
-        assessments = get_assessor_assessments(idx, assessor, conn, paramstyle)
-        # Check if all non-null results have assessments
-        needed = []
-        if medmentions_id is not None:
-            needed.append(medmentions_id)
-        if model_id is not None:
-            needed.append(model_id)
-        if any(nid not in assessments for nid in needed):
-            continue  # skip idx if any assessment missing
-        # Map assessment values to states
-        def map_assessment(val):
-            if val is None:
-                return 'Null'
-            v = val.lower()
-            if v == 'agree':
-                return 'True'
-            elif v == 'disagree':
-                return 'False'
-            elif v == 'unsure':
-                return 'Unsure'
+
+    # First, count cases where identifiers match (both True)
+    sql_match = q('''
+        SELECT COUNT(*)
+        FROM results mm
+        JOIN results m ON mm.idx = m.idx AND mm.identifier = m.identifier
+        WHERE mm.model = 'medmentions' AND m.model = ?
+          AND mm.identifier IS NOT NULL AND m.identifier IS NOT NULL
+    ''')
+    cursor.execute(sql_match, (model,))
+    matrix['True']['True'] = cursor.fetchone()[0]
+
+    # For disagreements, we need assessment data
+    # Get all cases where identifiers differ or one is NULL, with assessment info
+    sql_assessed = q('''
+        WITH paired_results AS (
+            SELECT
+                COALESCE(mm.idx, m.idx) as idx,
+                mm.identifier as medmentions_id,
+                m.identifier as model_id
+            FROM
+                (SELECT idx, identifier FROM results WHERE model = 'medmentions') mm
+            FULL OUTER JOIN
+                (SELECT idx, identifier FROM results WHERE model = ?) m
+            ON mm.idx = m.idx
+            WHERE NOT (mm.identifier IS NOT NULL AND m.identifier IS NOT NULL AND mm.identifier = m.identifier)
+        ),
+        assessments_agg AS (
+            SELECT
+                idx,
+                identifier,
+                MAX(CASE WHEN assessor = ? THEN assessment END) as assessment
+            FROM assessment
+            GROUP BY idx, identifier
+        )
+        SELECT
+            pr.idx,
+            pr.medmentions_id,
+            pr.model_id,
+            a_mm.assessment as mm_assessment,
+            a_m.assessment as m_assessment
+        FROM paired_results pr
+        LEFT JOIN assessments_agg a_mm ON pr.idx = a_mm.idx AND pr.medmentions_id = a_mm.identifier
+        LEFT JOIN assessments_agg a_m ON pr.idx = a_m.idx AND pr.model_id = a_m.identifier
+        WHERE (
+            (pr.medmentions_id IS NULL OR a_mm.assessment IS NOT NULL) AND
+            (pr.model_id IS NULL OR a_m.assessment IS NOT NULL)
+        )
+    ''')
+    cursor.execute(sql_assessed, (model, assessor))
+
+    # Process results and categorize
+    def map_assessment(val):
+        if val is None:
             return 'Null'
-        med_state = map_assessment(assessments.get(medmentions_id)) if medmentions_id is not None else 'Null'
-        model_state = map_assessment(assessments.get(model_id)) if model_id is not None else 'Null'
-        matrix[med_state][model_state] += 1
+        v = val.lower()
+        if v == 'agree':
+            return 'True'
+        elif v == 'disagree':
+            return 'False'
+        elif v == 'unsure':
+            return 'Unsure'
+        return 'Null'
+
+    for row in cursor.fetchall():
+        idx, medmentions_id, model_id, mm_assessment, m_assessment = row
+
+        med_state = map_assessment(mm_assessment) if medmentions_id is not None else 'Null'
+        model_state = map_assessment(m_assessment) if model_id is not None else 'Null'
+
+        # Only count if we have valid row state (not Null for medmentions)
+        if med_state in matrix:
+            matrix[med_state][model_state] += 1
+
     conn.close()
     return matrix
 
@@ -626,6 +642,48 @@ def check_skip_criteria_for_idx(idx, conn, c, paramstyle, q):
         return False
 
     return True
+
+@app.route('/assessor_agreement')
+def assessor_agreement():
+    """Show inter-rater agreement matrix for all assessors."""
+    conn, cursor, paramstyle, q, db_path = get_db_connection()
+
+    # Get all assessors who have made assessments
+    sql_assessors = q("SELECT DISTINCT assessor FROM assessment ORDER BY assessor")
+    cursor.execute(sql_assessors)
+    assessors = [row[0] for row in cursor.fetchall()]
+
+    # Build agreement matrix
+    agreement_matrix = {}
+    for assessor_a in assessors:
+        agreement_matrix[assessor_a] = {}
+        for assessor_b in assessors:
+            if assessor_a == assessor_b:
+                # Same assessor - 100% agreement with themselves
+                agreement_matrix[assessor_a][assessor_b] = {'shared': 0, 'agreed': 0, 'fraction': 1.0}
+            else:
+                # Find shared assessments (same idx and identifier)
+                sql_shared = q('''
+                    SELECT a1.idx, a1.identifier, a1.assessment, a2.assessment
+                    FROM assessment a1
+                    JOIN assessment a2 ON a1.idx = a2.idx AND a1.identifier = a2.identifier
+                    WHERE a1.assessor = ? AND a2.assessor = ?
+                ''')
+                cursor.execute(sql_shared, (assessor_a, assessor_b))
+                shared = cursor.fetchall()
+
+                shared_count = len(shared)
+                agreed_count = sum(1 for row in shared if row[2] == row[3])
+                fraction = (agreed_count / shared_count) if shared_count > 0 else 0.0
+
+                agreement_matrix[assessor_a][assessor_b] = {
+                    'shared': shared_count,
+                    'agreed': agreed_count,
+                    'fraction': fraction
+                }
+
+    conn.close()
+    return render_template('assessor_agreement.html', assessors=assessors, agreement_matrix=agreement_matrix)
 
 @app.route('/babel_info/<path:curie>')
 def babel_info(curie):
