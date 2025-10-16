@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Assessor Agreement Matrix</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        h1 { color: #2c3e50; }
+        table {
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+            border: 1px solid #ddd;
+            min-width: 80px;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .diagonal {
+            background-color: #e8e8e8;
+            color: #888;
+        }
+        .high-agreement {
+            background-color: #d4edda;
+        }
+        .medium-agreement {
+            background-color: #fff3cd;
+        }
+        .low-agreement {
+            background-color: #f8d7da;
+        }
+        .no-overlap {
+            background-color: #f8f9fa;
+            color: #999;
+        }
+        .note {
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.95em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Assessor Agreement Matrix</h1>
+    <p>This table shows inter-rater agreement between assessors. Each cell shows:</p>
+    <ul>
+        <li><b>Percentage:</b> Agreement rate (how often they gave the same assessment)</li>
+        <li><b>Fraction:</b> (agreed count / shared count)</li>
+    </ul>
+
+    <table>
+        <tr>
+            <th></th>
+            {% for assessor in assessors %}
+                <th>{{ assessor }}</th>
+            {% endfor %}
+        </tr>
+        {% for assessor_a in assessors %}
+            <tr>
+                <th>{{ assessor_a }}</th>
+                {% for assessor_b in assessors %}
+                    {% set data = agreement_matrix[assessor_a][assessor_b] %}
+                    {% if assessor_a == assessor_b %}
+                        <td class="diagonal">—</td>
+                    {% elif data.shared == 0 %}
+                        <td class="no-overlap">
+                            No overlap
+                        </td>
+                    {% else %}
+                        {% set pct = (data.fraction * 100) | round(1) %}
+                        {% if pct >= 80 %}
+                            {% set class = "high-agreement" %}
+                        {% elif pct >= 60 %}
+                            {% set class = "medium-agreement" %}
+                        {% else %}
+                            {% set class = "low-agreement" %}
+                        {% endif %}
+                        <td class="{{ class }}">
+                            <b>{{ pct }}%</b><br>
+                            <span style="font-size: 0.85em;">({{ data.agreed }}/{{ data.shared }})</span>
+                        </td>
+                    {% endif %}
+                {% endfor %}
+            </tr>
+        {% endfor %}
+    </table>
+
+    <div class="note">
+        <b>Color coding:</b>
+        <ul>
+            <li><span style="background-color: #d4edda; padding: 2px 8px;">Green</span>: ≥80% agreement</li>
+            <li><span style="background-color: #fff3cd; padding: 2px 8px;">Yellow</span>: 60-79% agreement</li>
+            <li><span style="background-color: #f8d7da; padding: 2px 8px;">Red</span>: <60% agreement</li>
+            <li><span style="background-color: #f8f9fa; padding: 2px 8px;">Gray</span>: No shared assessments</li>
+        </ul>
+    </div>
+
+    <p style="margin-top: 30px;">
+        <a href="/results?assessor=viewer">← Back to Results</a>
+    </p>
+</body>
+</html>
